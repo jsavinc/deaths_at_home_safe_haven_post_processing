@@ -12,7 +12,11 @@ los_cohort <-
   mutate(
     val_cohort_year = factor(val_cohort_year),
     mean_ci_lo = mean + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
-    mean_ci_hi = mean + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted)
+    mean_ci_hi = mean + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted),
+    ## adjust for proportion of 0s
+    mean_adjusted = mean / prop_admitted,
+    mean_adjusted_ci_lo = mean_adjusted + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
+    mean_adjusted_ci_hi = mean_adjusted + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted)
   )
 
 fig_los_cohort <-
@@ -39,8 +43,34 @@ fig_los_cohort %>%
   ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/fig_los_cohort.png", width = 12, height = 7, units = "cm", dpi = 300)
 
 
-# By cohort & place of death ----------------------------------------------
 
+# By cohort, hospital users only ------------------------------------------
+
+fig_los_cohort_users_only <-
+  los_cohort %>%
+  ggplot(aes(x=val_cohort_year, y = mean_adjusted, group = 1)) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean_adjusted_ci_lo, ymax = mean_adjusted_ci_hi), width = 0.3) +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(angle=60, hjust=1)
+  ) +
+  labs(
+    x = NULL, y = NULL,
+    title = "Length of stay by cohort year",
+    subtitle = "LOS computed for hospital users only",
+    caption = "Error bars represent 95% CI of mean (t-distribution)."
+  ) +
+  NULL
+
+
+fig_los_cohort_users_only %>%
+  ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/fig_los_cohort_users_only.png", width = 12, height = 7, units = "cm", dpi = 300)
+
+
+# By cohort & place of death ----------------------------------------------
 
 los_cohort_pod <- 
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_los_cohort_pod.csv") %>%
@@ -48,7 +78,11 @@ los_cohort_pod <-
     mean_ci_lo = mean + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
     mean_ci_hi = mean + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted),
     val_cohort_year = factor(val_cohort_year),
-    cat_place_of_death = factor(cat_place_of_death, levels = unique(cat_place_of_death))
+    cat_place_of_death = factor(cat_place_of_death, levels = unique(cat_place_of_death)),
+    ## adjust for proportion of 0s
+    mean_adjusted = mean / prop_admitted,
+    mean_adjusted_ci_lo = mean_adjusted + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
+    mean_adjusted_ci_hi = mean_adjusted + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted)
   )
 
 
@@ -100,9 +134,34 @@ fig_los_cohort_pod %>%
   ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/fig_los_cohort_pod.png", width = 12, height = 7, units = "cm", dpi = 300)
 
 
+# By cohort & POD, hospital users only ------------------------------------
+
+fig_los_cohort_pod_users_only <-
+  los_cohort_pod %>%
+  ggplot(aes(x=val_cohort_year, y = mean_adjusted, colour = cat_place_of_death, group = cat_place_of_death)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean_adjusted_ci_lo, ymax = mean_adjusted_ci_hi), width = 0.3) +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(angle=60, hjust=1)
+  ) +
+  scale_colour_viridis_d() +
+  labs(
+    x = NULL, y = NULL,
+    title = "Length of stay by cohort year & place of death",
+    subtitle = "LOS computed for hospital users only",
+    caption = "Error bars represent 95% CI of mean (t-distribution)."
+  ) +
+  NULL
+
+
+fig_los_cohort_pod_users_only %>%
+  ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/fig_los_cohort_pod_users_only.png", width = 12, height = 7, units = "cm", dpi = 300)
+
 
 # By cohort & SIMD --------------------------------------------------------
-
 
 los_cohort_simd <- 
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_los_cohort_simd.csv") %>%
