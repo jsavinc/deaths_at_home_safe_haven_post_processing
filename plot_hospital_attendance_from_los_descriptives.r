@@ -1,6 +1,5 @@
 # Plot data on hospital attendance from LOS descriptives
 
-
 library(tidyverse)
 library(patchwork)
 
@@ -104,6 +103,66 @@ fig_attenders_cohort_pod <-
 
 fig_attenders_cohort_pod %>%
   ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/fig_hospital_attenders_cohort_pod.png", width = 15, height = 10, units = "cm", dpi = 300)
+
+
+
+# By cohort, SIMD ---------------------------------------------------------
+
+
+los_cohort_simd <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_los_cohort_simd.csv") %>%
+  mutate(
+    mean_ci_lo = mean + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
+    mean_ci_hi = mean + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted),
+    val_cohort_year = factor(val_cohort_year),
+    val_simd_quintile = factor(as.integer(val_simd_quintile))
+  )
+
+fig_attenders_cohort_simd_n <-
+  los_cohort_simd %>%
+  ggplot(aes(x=val_cohort_year, y=n_admitted, colour = val_simd_quintile, group = val_simd_quintile, shape = val_simd_quintile)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = ~format(.x, big.mark=",")) +
+  labs(
+    title = str_wrap("Number & proportion of people with an inpatient admission in the last 12 months of life", width = 60),
+    x = NULL, y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(angle=60, hjust=1)
+  ) +
+  scale_colour_viridis_d() +
+  NULL
+
+fig_attenders_cohort_simd_prop <-
+  los_cohort_simd %>%
+  ggplot(aes(x=val_cohort_year, y=prop_admitted, colour = val_simd_quintile, group = val_simd_quintile, shape = val_simd_quintile)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = ~scales::percent(.x, accuracy=1)) +
+  labs(
+    x = NULL, y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(angle=60, hjust=1)
+  ) +
+  scale_colour_viridis_d() +
+  NULL
+
+fig_attenders_cohort_simd <- 
+  wrap_plots(
+    fig_attenders_cohort_simd_n + fig_attenders_cohort_simd_prop,
+    guides = "collect"
+  ) &
+  theme(legend.position = "top")
+
+
+fig_attenders_cohort_simd %>%
+  ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/fig_hospital_attenders_cohort_simd.png", width = 15, height = 10, units = "cm", dpi = 300)
 
 
 # By cohort, place of death, and SIMD -------------------------------------
