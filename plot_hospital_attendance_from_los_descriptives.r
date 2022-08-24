@@ -105,6 +105,70 @@ fig_attenders_cohort_pod %>%
   ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/fig_hospital_attenders_cohort_pod.png", width = 15, height = 10, units = "cm", dpi = 300)
 
 
+# Non-attenders by cohort & POD -------------------------------------------
+
+cohort_size_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/outputs/cohort_size_pod.csv") %>%
+  mutate(
+    val_cohort_year = factor(val_cohort_year),
+    cat_place_of_death = factor(cat_place_of_death, levels = unique(cat_place_of_death))
+  )
+
+los_cohort_pod_nonattenders <-
+  los_cohort_pod %>%
+  left_join(cohort_size_pod, by = c("val_cohort_year","cat_place_of_death")) %>%
+  mutate(
+    n_nonusers = n-n_admitted,
+    prop_nonusers = 1-prop_admitted
+    )
+
+fig_nonattenders_cohort_pod_n <-
+  los_cohort_pod_nonattenders %>%
+  ggplot(aes(x=val_cohort_year, y=n_nonusers, colour = cat_place_of_death, group = cat_place_of_death)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = ~format(.x, big.mark=",")) +
+  labs(
+    title = str_wrap("Number & proportion of people with no inpatient admissions in the last 12 months of life", width = 60),
+    x = NULL, y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(angle=60, hjust=1)
+  ) +
+  scale_colour_viridis_d() +
+  NULL
+
+fig_nonattenders_cohort_pod_prop <-
+  los_cohort_pod_nonattenders %>%
+  ggplot(aes(x=val_cohort_year, y=prop_nonusers, colour = cat_place_of_death, group = cat_place_of_death)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = ~scales::percent(.x, accuracy=1)) +
+  labs(
+    x = NULL, y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(angle=60, hjust=1)
+  ) +
+  scale_colour_viridis_d() +
+  NULL
+
+fig_nonattenders_cohort_pod <- 
+  wrap_plots(
+    fig_nonattenders_cohort_pod_n + fig_nonattenders_cohort_pod_prop,
+    guides = "collect"
+  ) &
+  theme(legend.position = "top")
+
+
+fig_nonattenders_cohort_pod %>%
+  ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/fig_hospital_nonattenders_cohort_pod.png", width = 15, height = 10, units = "cm", dpi = 300)
+
+
 
 # By cohort, SIMD ---------------------------------------------------------
 
