@@ -115,6 +115,7 @@ gpooh_contacts_pod <-
     val_cohort_year = factor(val_cohort_year),
     cat_place_of_death = factor(cat_place_of_death, levels = order_place_of_death)
   )
+
 # plots -------------------------------------------------------------------
 
 ## plot combining all service total usign facet_wrap
