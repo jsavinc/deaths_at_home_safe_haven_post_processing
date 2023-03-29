@@ -96,4 +96,8 @@ fig_nonattenders_cohort_pod_prop <-
 
 fig_nonattenders_cohort_pod %>%
   ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/data_insights/fig_hospital_nonattenders_cohort_pod.png", width = 15, height = 10, units = "cm", dpi = 300)
+fig_nonattenders_cohort_pod %>%
+  ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/data_insights/fig_hospital_nonattenders_cohort_pod.pdf", width = 15, height = 10, units = "cm", dpi = 300)
+fig_nonattenders_cohort_pod %>%
+  ggsave(plot = ., filename = "X:/R2090/2021-0312 Deaths at home/outputs/data_insights/fig_hospital_nonattenders_cohort_pod.svg", width = 15, height = 10, units = "cm", dpi = 300)
 
