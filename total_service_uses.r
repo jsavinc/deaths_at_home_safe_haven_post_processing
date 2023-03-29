@@ -165,7 +165,7 @@ fig_service_totals %>%
   ggsave(
     filename = "X:/R2090/2021-0312 Deaths at home/outputs/service_users/fig_service_totals.png",
     dpi = 300,
-    width = 9,
+    width = 11,
     height = 6,
     bg = "white"
   )
@@ -184,7 +184,7 @@ fig_service_totals %>%
     ) +
     geom_line() +
     geom_point(size = rel(3), alpha = 0.8) +
-    facet_wrap(~cat_measure, scales = "free_y") +
+    facet_wrap(~cat_measure, scales = "free_y", nrow = 2) +
     scale_colour_viridis_d() +
     scale_y_continuous(labels = scales::comma) +
     labs(x = NULL, y = NULL, title = "Service use averages per person") +
@@ -195,7 +195,7 @@ fig_service_means %>%
   ggsave(
     filename = "X:/R2090/2021-0312 Deaths at home/outputs/service_users/fig_service_means.png",
     dpi = 300,
-    width = 9,
+    width = 11,
     height = 6,
     bg = "white"
   )
