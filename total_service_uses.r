@@ -116,9 +116,8 @@ gpooh_contacts_pod <-
     cat_place_of_death = factor(cat_place_of_death, levels = order_place_of_death)
   )
 
-# plots -------------------------------------------------------------------
 
-## plot combining all service total usign facet_wrap
+# combine service use data ------------------------------------------------
 
 combined_service_uses <- pmap_dfr(
   .l = 
@@ -132,13 +131,13 @@ combined_service_uses <- pmap_dfr(
       sas_uses_pod, "Ambulance uses",
       nhs24_calls_pod, "NHS24 calls"
     ) %>% mutate(name = factor(name, levels = unique(name))),
-    .f = function(df, name) {
-      df %>% 
-        select(val_cohort_year, cat_place_of_death, matches("amt_person"), m_users, n_users) %>%
-        rename(amt_service_total = 3) %>%
-        mutate(cat_measure = name)
-    }
-  ) %>%
+  .f = function(df, name) {
+    df %>% 
+      select(val_cohort_year, cat_place_of_death, matches("amt_person"), m_users, n_users) %>%
+      rename(amt_service_total = 3) %>%
+      mutate(cat_measure = name)
+  }
+) %>%
   repeat_data_adding_a_catchall_category(var_to_change = cat_place_of_death, label_for_catchall = "All") %>%
   group_by(val_cohort_year, cat_place_of_death, cat_measure) %>%
   summarise(
@@ -147,6 +146,25 @@ combined_service_uses <- pmap_dfr(
     amt_service_total = sum(amt_service_total),
     .groups = "drop"
   )
+
+# tables ------------------------------------------------------------------
+
+## table showing percentage change during pandemic
+table_percentage_change_service_use <-
+  combined_service_uses %>%
+  filter(val_cohort_year %in% levels(val_cohort_year)[5:6]) %>%
+  pivot_longer(cols = m_users:amt_service_total, names_to = "measure", values_to = "statistic") %>%
+  pivot_wider(names_from = val_cohort_year, values_from = statistic) %>%
+  mutate(percent_change = scales::label_percent(accuracy = 0.1)(`2020-21`/`2019-20` - 1))
+
+table_percentage_change_service_use %>%
+  write_csv("X:/R2090/2021-0312 Deaths at home/outputs/service_users/tbl_service_use_percent_changes_during_pandemic.csv")
+
+# plots -------------------------------------------------------------------
+
+## plot combining all service total usign facet_wrap
+
+
 
 
 (fig_service_totals <-
@@ -157,7 +175,8 @@ combined_service_uses <- pmap_dfr(
     geom_point(size = rel(3), alpha = 0.8) +
     facet_wrap(~cat_measure, scales = "free_y", nrow = 2) +
     scale_colour_viridis_d() +
-    scale_y_continuous(labels = scales::comma) +
+    # scale_y_continuous(labels = scales::comma) +
+    scale_y_continuous(labels = scales::comma, limits = c(0, NA)) +
     labs(x = NULL, y = NULL, title = "Service use totals") +
     theme(plot.title = element_text(hjust = 0.5))
 )
@@ -187,7 +206,7 @@ fig_service_totals %>%
     geom_point(size = rel(3), alpha = 0.8) +
     facet_wrap(~cat_measure, scales = "free_y", nrow = 2) +
     scale_colour_viridis_d() +
-    scale_y_continuous(labels = scales::comma) +
+    scale_y_continuous(labels = scales::comma, limits = c(0, NA)) +
     labs(x = NULL, y = NULL, title = "Service use averages per person") +
     theme(plot.title = element_text(hjust = 0.5))
 )
@@ -200,21 +219,3 @@ fig_service_means %>%
     height = 6,
     bg = "white"
   )
-
-
-# hospital_los_pod %>%
-#   ggplot(aes(x = val_cohort_year, y = amt_person_days, group = cat_place_of_death, colour = cat_place_of_death)) +
-#   geom_point() +
-#   geom_line() +
-#   theme_minimal() +
-#   theme(
-#     legend.title = element_blank(), legend.position = "top",
-#     axis.text.x = element_text(angle=60, hjust=1)
-#   ) +
-#   scale_colour_viridis_d() +
-#   labs(
-#     x = NULL, y = NULL,
-#     title = "Person-hospital days by cohort year & place of death",
-#     caption = "Error bars represent 95% CI of mean (t-distribution)."
-#   ) +
-#   NULL
