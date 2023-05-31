@@ -45,15 +45,23 @@ hospital_los_pod <-
   )
 
 ## hospital admissions
+# hospital_spells_pod <-
+#   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_cod_underlying_mean_spells.csv") %>%
+#   filter(cat_cod_nrs == "All causes") %>%
+#   select(-cat_cod_nrs) %>%
+#   pivot_annual_to_long() %>%
+#   rename(val_cohort_year = cohort_year) %>%
+#   parse_m_ci(col_m_ci = n_prop) %>%
+#   rename(m_users = m, ci_lo_users = ci_lo, ci_hi_users = ci_hi) %>%
+#   left_join(hospital_los_pod %>% select(val_cohort_year, cat_place_of_death, n_users, n_cohort), by = c("val_cohort_year","cat_place_of_death")) %>%
+#   mutate(
+#     amt_person_spells = n_users * m_users,
+#     val_cohort_year = factor(val_cohort_year),
+#     cat_place_of_death = factor(cat_place_of_death, levels = order_place_of_death)
+#   )
 hospital_spells_pod <-
-  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_cod_underlying_mean_spells.csv") %>%
-  filter(cat_cod_nrs == "All causes") %>%
-  select(-cat_cod_nrs) %>%
-  pivot_annual_to_long() %>%
-  rename(val_cohort_year = cohort_year) %>%
-  parse_m_ci(col_m_ci = n_prop) %>%
-  rename(m_users = m, ci_lo_users = ci_lo, ci_hi_users = ci_hi) %>%
-  left_join(hospital_los_pod %>% select(val_cohort_year, cat_place_of_death, n_users, n_cohort), by = c("val_cohort_year","cat_place_of_death")) %>%
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/smr01_spells_descriptives_by_pod.csv") %>%
+  recalculate_mean_for_users_only(cohort_by_pod) %>%
   mutate(
     amt_person_spells = n_users * m_users,
     val_cohort_year = factor(val_cohort_year),
@@ -71,6 +79,9 @@ ae_los_pod <-
   )
 
 ## A&E admissions - these were exported as part of the service use by CoD export
+## Note that only users were included in the computations here, and that SD was
+## not included in the export, so I'm recalculating it from the confidence
+## intervals
 ae_admissions_pod <-
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_cod_underlying_mean_ae_admissions.csv") %>%
   filter(cat_cod_nrs == "All causes") %>%
@@ -80,6 +91,7 @@ ae_admissions_pod <-
   parse_m_ci(col_m_ci = n_prop) %>%
   rename(m_users = m, ci_lo_users = ci_lo, ci_hi_users = ci_hi) %>%
   left_join(ae_los_pod %>% select(val_cohort_year, cat_place_of_death, n_users, n_cohort), by = c("val_cohort_year","cat_place_of_death")) %>%
+  recalculate_sd_from_mean_ci_and_n(mean_var = m_users, ci_lo_var = ci_lo_users, n_var = n_users, new_sd_var = sd_users) %>%
   mutate(
     amt_person_admissions = n_users * m_users,
     val_cohort_year = factor(val_cohort_year),
@@ -121,6 +133,7 @@ gpooh_contacts_pod <-
 
 combined_service_uses <- pmap_dfr(
   .l = 
+    ## assemble all the individual measures
     tribble(
       ~df, ~name,
       hospital_spells_pod, "Hospital spells",
@@ -133,8 +146,8 @@ combined_service_uses <- pmap_dfr(
     ) %>% mutate(name = factor(name, levels = unique(name))),
   .f = function(df, name) {
     df %>% 
-      select(val_cohort_year, cat_place_of_death, matches("amt_person"), m_users, n_users) %>%
-      rename(amt_service_total = 3) %>%
+      select(val_cohort_year, cat_place_of_death, matches("amt_person"), m_users, sd_users, n_users) %>%
+      rename(amt_service_total = 3) %>%  # rename 3rd variable to be the service total
       mutate(cat_measure = name)
   }
 ) %>%
@@ -142,12 +155,18 @@ combined_service_uses <- pmap_dfr(
   group_by(val_cohort_year, cat_place_of_death, cat_measure) %>%
   summarise(
     m_users = weighted.mean(m_users, w = n_users),
+    ## pooled SD = sqrt of weighted mean of variances, weights = n-1
+    sd_users = sqrt(weighted.mean(sd_users^2, w = n_users-1)),
     n_users = sum(n_users),
     amt_service_total = sum(amt_service_total),
     .groups = "drop"
   )
 
 # tables ------------------------------------------------------------------
+
+## table of service use summaries by cohort
+combined_service_uses %>%
+  write_csv("X:/R2090/2021-0312 Deaths at home/outputs/service_users/tbl_service_use_summaries.csv")
 
 ## table showing percentage change during pandemic
 table_percentage_change_service_use <-

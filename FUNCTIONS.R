@@ -164,3 +164,21 @@ recalculate_mean_for_users_only <- function(data_tbl, denominator_tbl) {
       ci_hi_users = m_users + qt(p = 0.975, df = n_users - 1) * sd_users/sqrt(n_users)
     )
 }
+
+
+# Recalculate SD from mean, confidence interval, and N --------------------
+
+# Because I know how I calculated the confidence interval, I can
+# 'back-calculate' the standard deviation from the confidence interval, mean,
+# and number
+# e.g. 
+# ci_lo_users = m_users + qt(p = 0.025, df = n_users - 1) * sd_users/sqrt(n_users)
+
+recalculate_sd_from_mean_ci_and_n <- function(data_tbl, mean_var, ci_lo_var, n_var, new_sd_var) {
+  data_tbl %>%
+    mutate(
+      {{new_sd_var}} :=
+        sqrt({{n_var}}) * ({{ci_lo_var}} - {{mean_var}}) / qt(p = 0.025, df = {{n_var}} - 1)
+    )
+}
+
