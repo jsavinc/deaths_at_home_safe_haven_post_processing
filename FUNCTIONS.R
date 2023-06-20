@@ -36,6 +36,11 @@ theme_set(theme_minimal(base_size = 12) +
             ))
 
 
+# Print all ---------------------------------------------------------------
+
+print_all <- function(x) print(x, n = nrow(x))
+
+
 # Parse N (%) notation ----------------------------------------------------
 
 ## Numbers & proportions are given in the same cell for ease of use
