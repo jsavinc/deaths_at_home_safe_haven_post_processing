@@ -50,7 +50,6 @@ hospital_los_pod <-
 #   filter(cat_cod_nrs == "All causes") %>%
 #   select(-cat_cod_nrs) %>%
 #   pivot_annual_to_long() %>%
-#   rename(val_cohort_year = cohort_year) %>%
 #   parse_m_ci(col_m_ci = n_prop) %>%
 #   rename(m_users = m, ci_lo_users = ci_lo, ci_hi_users = ci_hi) %>%
 #   left_join(hospital_los_pod %>% select(val_cohort_year, cat_place_of_death, n_users, n_cohort), by = c("val_cohort_year","cat_place_of_death")) %>%
@@ -87,7 +86,7 @@ ae_admissions_pod <-
   filter(cat_cod_nrs == "All causes") %>%
   select(-cat_cod_nrs) %>%
   pivot_annual_to_long() %>%
-  rename(val_cohort_year = cohort_year) %>%
+  # rename(val_cohort_year = cohort_year) %>%
   parse_m_ci(col_m_ci = n_prop) %>%
   rename(m_users = m, ci_lo_users = ci_lo, ci_hi_users = ci_hi) %>%
   left_join(ae_los_pod %>% select(val_cohort_year, cat_place_of_death, n_users, n_cohort), by = c("val_cohort_year","cat_place_of_death")) %>%

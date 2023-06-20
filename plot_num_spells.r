@@ -18,7 +18,8 @@ num_spells_descriptives <- read_csv(
     mutate(cat_place_of_death = fct_relevel(cat_place_of_death, levels(cat_place_of_death)[2])) %>%
     ggplot(
       aes(
-        x = cohort_year,
+        # x = cohort_year,
+        x = val_cohort_year,
         y = m,
         colour = cat_place_of_death,
         shape = cat_place_of_death,

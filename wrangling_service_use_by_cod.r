@@ -28,12 +28,12 @@ cod_all_pod <-
   cod_raw %>%
   pivot_annual_to_long %>%
   parse_n_prop(col_n_prop = n_prop) %>%
-  group_by(cohort_year, cat_cod_nrs) %>%
+  group_by(val_cohort_year, cat_cod_nrs) %>%
   summarise(
     n = sum(n, na.rm = TRUE),  # C19 is NA before pandemic
     .groups = "drop"
   ) %>%
-  group_by(cohort_year) %>%
+  group_by(val_cohort_year) %>%
   mutate(prop = n/sum(n)) %>%
   ungroup %>%
   mutate(n = if_else(n==0, NA_real_, n))
@@ -45,7 +45,7 @@ cod_all_pod_wide <-
     n_prop = calculate_n_prop(n, prop)
   ) %>%
   select(-c(n,prop)) %>%
-  pivot_wider(names_from = cohort_year, values_from = n_prop) 
+  pivot_wider(names_from = val_cohort_year, values_from = n_prop) 
 
 cod_all_pod_wide %>%
   write_csv(file = file.path(outputs_dir, "deaths_by_cod_underlying.csv"))

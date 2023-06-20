@@ -82,7 +82,7 @@ pivot_annual_to_long <- function(data_tbl, new_col = "n_prop") {
   data_tbl %>%
     tidyr::pivot_longer(
       cols = matches("\\d{4}\\-\\d{2}"),
-      names_to = "cohort_year",
+      names_to = "val_cohort_year",
       values_to = new_col, 
       values_drop_na = TRUE  # remove blank columns, e.g. for Covid-19 before pandemic period
     )

@@ -22,7 +22,7 @@ hospital_spells_pod <- read_csv(
   file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/smr01_spells_categorised_by_pod.csv"
   ) %>%
   pivot_annual_to_long() %>%
-  rename(val_cohort_year = cohort_year) %>%
+  # rename(val_cohort_year = cohort_year) %>%
   parse_n_prop(col_n_prop = n_prop) %>%
   mutate(
     cat_smr01_spells = factor(cat_smr01_spells, levels = c(as.character(0:14),"15+")),
