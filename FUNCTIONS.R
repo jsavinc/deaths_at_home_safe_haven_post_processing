@@ -22,6 +22,23 @@ order_ur8 <-
     "Missing"
   )
 
+variable_names <- tribble(
+  ~short_name, ~long_name,
+  "cat_sex", "Sex",
+  "cat_age_5", "Age group",
+  "cat_marital_status_condensed", "Marital status",
+  "cat_simd_quintile", "SIMD quintile (1=most deprived)",
+  "cat_ur3", "Urban-rural 3-fold",
+  "cat_drive_to_hosp_mins", "Driving time to nearest hospital (minutes)",
+  "bin_palliative_murtagh_mid_upper", "Palliative care needs estimate",
+  "bin_dispensed_palliative", "Was dispensed palliative medicines",
+  "amt_spells_smr01_365d", "Number of hospitalisations in last 12 months",
+  "amt_spells_ae_365d", "Number of A&E admissions in last 12 months",
+  "amt_spells_sas_365d", "Number of ambulance uses in last 12 months",
+  "amt_spells_nhs24_365d", "Number of NHS24 calls in last 12 months",
+  "val_elixhauser_index_vanwalraven", "Elixhauser comorbidity index",
+  "amt_pandemic_days", "Days alive during pandemic"
+)
 
 # Theme settings ----------------------------------------------------------
 
@@ -40,6 +57,18 @@ theme_set(theme_minimal(base_size = 12) +
 
 print_all <- function(x) print(x, n = nrow(x))
 
+
+
+# Replace with long variable name -----------------------------------------
+
+replace_with_long_variable_name <- function(variable) {
+  if_else(
+    condition = variable %in% variable_names$short_name,
+    true = variable_names$long_name[match(x = variable, table = variable_names$short_name)],
+    false = variable,
+    missing = variable
+  )
+}
 
 # Parse N (%) notation ----------------------------------------------------
 
