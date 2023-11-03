@@ -276,6 +276,23 @@ supplementary_table1 <-
 
 ## suppl table 2 contains the CoD count & comorb count frequencies, showing that
 ## the change is largely in the 0/1 categories
+
+# TODO: this is an alternative categorisation of 5+ comorbidities, maybe clearer to show differences here
+num_comorb_categorised_by_pod %>%
+  mutate(
+    cat_comorb_count = factor(cat_comorb_count, levels = c(as.character(0:10),"11+")),
+    cat_comorb_count_5 = fct_collapse(cat_comorb_count, "5+" = c(as.character(5:10),"11+"))
+    ) %>%
+  group_by(cat_place_of_death, val_cohort_year, cat_comorb_count_5) %>%
+  summarise(
+    n = sum(n), .groups = "drop"
+  ) %>%
+  group_by(cat_place_of_death, val_cohort_year) %>%
+  mutate(prop = n/sum(n)) %>%
+  mutate(measure = "Recorded comorbidities, N (%)", value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})")) %>%
+  select(measure, val_cohort_year, cat_place_of_death, levels = cat_comorb_count_5, value) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = value)
+
 supplementary_table2 <-
   bind_rows(
     num_cod_categorised_by_pod %>%
