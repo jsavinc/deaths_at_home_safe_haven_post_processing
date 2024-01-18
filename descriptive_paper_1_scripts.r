@@ -216,6 +216,99 @@ table1 <-
 
 table1 %>% print_all
 
+table1_average_prepandemic <-
+  bind_rows(
+    pod %>%
+      create_pandemic_variable() %>%
+      group_by(cat_cohort, cat_place_of_death) %>%
+      summarise(
+        measure = "Place of death, N (%)",
+        total = mean(n/prop),
+        n = mean(n),
+        prop = n/total,
+        value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})"),
+        .groups = "drop"
+        ) %>%
+      select(measure, cat_cohort, cat_place_of_death, value),
+    age_by_pod %>% 
+      create_pandemic_variable() %>%
+      group_by(cat_cohort, cat_place_of_death) %>%
+      summarise(
+        measure = "Age, M (SD)",
+        mean = weighted.mean(mean, w = n_deaths),
+        sd = sd_pooled(sd, n_deaths),
+        value = glue::glue("{round(mean,2)} ({round(sd,2)})"),
+        .groups = "drop"
+      ) %>%
+      select(measure, cat_cohort, cat_place_of_death, value),
+    sex_by_pod %>%
+      create_pandemic_variable() %>%
+      group_by(cat_cohort, cat_place_of_death) %>%
+      summarise(
+        measure = "Female, N (%)",
+        total = mean(n/prop),
+        n = mean(n),
+        prop = n/total,
+        value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})"),
+        .groups = "drop"
+      ) %>%
+      select(measure, cat_cohort, cat_place_of_death, value),
+    marstat_by_pod %>%
+      filter(cat_marital_status_condensed != "Missing") %>%
+      create_pandemic_variable() %>%
+      group_by(cat_cohort, cat_place_of_death, cat_marital_status_condensed) %>%
+      summarise(
+        n = mean(n),
+        .groups = "drop"
+      ) %>%
+      group_by(cat_cohort, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup %>%
+      mutate(measure = "Marital status, N (%)", value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})")) %>%
+      select(measure, cat_cohort, cat_place_of_death, levels = cat_marital_status_condensed, value),
+    ethnicity_by_pod %>%
+      create_pandemic_variable() %>%
+      group_by(cat_cohort, cat_place_of_death, cat_ethnic_group_collapsed) %>%
+      summarise(
+        n = mean(n),
+        .groups = "drop"
+      ) %>%
+      group_by(cat_cohort, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup %>%
+      mutate(measure = "Ethnicity, N (%)", value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})")) %>%
+      select(measure, cat_cohort, cat_place_of_death, levels = cat_ethnic_group_collapsed, value),
+    simd_by_pod %>%
+      filter(!is.na(val_simd_quintile)) %>%
+      create_pandemic_variable() %>%
+      group_by(cat_cohort, cat_place_of_death, val_simd_quintile) %>%
+      summarise(
+        n = mean(n),
+        .groups = "drop"
+      ) %>%
+      group_by(cat_cohort, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup %>%
+      mutate(measure = "Deprivation, N (%)", value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})")) %>%
+      select(measure, cat_cohort, cat_place_of_death, levels = val_simd_quintile, value) %>%
+      mutate(levels = if_else(levels==1, "1 (most deprived)", as.character(levels))),
+    ur2_by_pod %>%
+      filter(!is.na(cat_ur2)) %>%
+      create_pandemic_variable() %>%
+      group_by(cat_cohort, cat_place_of_death, cat_ur2) %>%
+      summarise(
+        n = mean(n),
+        .groups = "drop"
+      ) %>%
+      group_by(cat_cohort, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup %>%
+      mutate(measure = "Urban-rural indicator, N (%)", value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})")) %>%
+      select(measure, cat_cohort, cat_place_of_death, levels = cat_ur2, value),
+  ) %>%
+  pivot_wider(names_from = cat_cohort, values_from = value)
+  
+# TODO: add averages for 2015-2019 aggregated
 table2 <-
   bind_rows(
     num_cod_by_pod %>%
@@ -321,10 +414,47 @@ if(!dir.exists("X:/R2090/2021-0312 Deaths at home/outputs/descriptive_paper_1"))
 write.xlsx(
   x = list(
     "table1" = table1,
+    "table1, prepandemic avg" = table1_average_prepandemic,
     "table2" = table2,
     "suppl_table1" = supplementary_table1,
     "suppl_table2" = supplementary_table2,
     "missingness_per_year" = missingness_per_year
   ),
   file = "X:/R2090/2021-0312 Deaths at home/outputs/descriptive_paper_1/descriptive_paper_1_tables.xlsx"
+)
+
+
+# plots -------------------------------------------------------------------
+
+(
+fig_age_group_5_home_line <-
+  age_group_by_pod %>%
+  filter(cat_place_of_death == "Home & non-institution") %>%
+  ggplot(
+    data = .,
+    aes(x = val_cohort_year, y = prop, colour = cat_age_5, group = cat_age_5, shape = cat_age_5)
+  ) +
+  geom_point(size = rel(2)) +
+  geom_line() +
+  facet_wrap(~cat_place_of_death) +
+  scale_colour_viridis_d(direction = -1) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x = NULL, y = NULL)
+)
+(
+fig_age_group_5_home <- 
+  age_group_by_pod %>%
+  filter(cat_place_of_death == "Home & non-institution") %>%
+  ggplot(
+    data = .,
+    aes(x = val_cohort_year, y = n, group = cat_age_5, fill = cat_age_5)
+  ) +
+  # geom_point(size = rel(2)) +
+  geom_col(position = position_dodge(width = 1)) +
+  ggrepel::geom_text_repel(aes(label = scales::label_percent(accuracy=0.1)(prop))) +
+  facet_wrap(~cat_place_of_death) +
+  # scale_colour_viridis_d(direction = -1) +
+  scale_fill_viridis_d(direction = -1) +
+  scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+  labs(x = NULL, y = NULL) 
 )
