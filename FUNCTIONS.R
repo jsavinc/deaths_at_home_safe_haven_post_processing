@@ -216,3 +216,25 @@ recalculate_sd_from_mean_ci_and_n <- function(data_tbl, mean_var, ci_lo_var, n_v
     )
 }
 
+
+# Create new grouping for pandemic vs pre-pandemic ------------------------
+
+## Based on val_cohort_year, create a variable that denotes whether it's the
+## pandemic or pre-pandemic period
+
+create_pandemic_variable <- function(data_tbl) {
+  data_tbl %>%
+    mutate(cat_cohort = fct_collapse(as.factor(val_cohort_year),
+                                     "2020-21" = c("2020-21"),
+                                     "2015-2019" = c("2015-16", "2016-17", "2017-18", "2018-19", "2019-20")
+                                     )
+           )
+}
+
+
+# compute pooled sd -------------------------------------------------------
+
+sd_pooled <- function(sd, n) {
+  sd_pooled <- sqrt(sum((n-1)*(sd^2))/sum(n-1))
+  return(sd_pooled)
+}
