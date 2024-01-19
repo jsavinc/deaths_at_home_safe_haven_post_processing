@@ -2,10 +2,17 @@
 
 
 
+
+# constants ---------------------------------------------------------------
+
+dir_output <- 
+  "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/descriptive paper 1/"
+
 # packages ----------------------------------------------------------------
 
 library(tidyverse)
 library(openxlsx)
+library(patchwork)
 
 source("./FUNCTIONS.R")  # load common functions
 
@@ -52,11 +59,13 @@ sex_by_pod <-
 
 marstat_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/marstat_by_pod.csv") %>%
   pivot_annual_to_long() %>%
-  parse_n_prop(col_n_prop = n_prop)
+  parse_n_prop(col_n_prop = n_prop) %>%
+  mutate(cat_marital_status_condensed = factor(cat_marital_status_condensed, levels = unique(cat_marital_status_condensed)))
 
 ethnicity_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/ethnicity_by_pod.csv") %>%
   pivot_annual_to_long() %>%
-  parse_n_prop(col_n_prop = n_prop)
+  parse_n_prop(col_n_prop = n_prop) %>%
+  mutate(cat_ethnic_group_collapsed = factor(cat_ethnic_group_collapsed, levels = unique(cat_ethnic_group_collapsed)))
 
 ## rounded to nearest 10
 simd_by_pod <-
@@ -168,6 +177,15 @@ missingness_per_year <-
         relocate(variable)
     }
   )
+
+
+# recalculate frequencies from categorised --------------------------------
+
+num_comorb_inferred_from_categories_by_pod <-
+  num_comorb_categorised_by_pod %>%
+  mutate(val_comorb = as.integer(parse_number(cat_comorb_count))) %>%
+  select(cat_place_of_death, val_cohort_year, n, val_comorb) %>%
+  uncount(n)
 
 # compose tables ----------------------------------------------------------
 
@@ -426,35 +444,297 @@ write.xlsx(
 
 # plots -------------------------------------------------------------------
 
+# demography plots --------------------------------------------------------
+
 (
-fig_age_group_5_home_line <-
+fig_age_group_5 <- 
   age_group_by_pod %>%
-  filter(cat_place_of_death == "Home & non-institution") %>%
-  ggplot(
-    data = .,
-    aes(x = val_cohort_year, y = prop, colour = cat_age_5, group = cat_age_5, shape = cat_age_5)
-  ) +
-  geom_point(size = rel(2)) +
-  geom_line() +
-  facet_wrap(~cat_place_of_death) +
-  scale_colour_viridis_d(direction = -1) +
-  scale_y_continuous(labels = scales::comma) +
-  labs(x = NULL, y = NULL)
-)
-(
-fig_age_group_5_home <- 
-  age_group_by_pod %>%
-  filter(cat_place_of_death == "Home & non-institution") %>%
   ggplot(
     data = .,
     aes(x = val_cohort_year, y = n, group = cat_age_5, fill = cat_age_5)
   ) +
-  # geom_point(size = rel(2)) +
-  geom_col(position = position_dodge(width = 1)) +
-  ggrepel::geom_text_repel(aes(label = scales::label_percent(accuracy=0.1)(prop))) +
+  geom_col(position = position_stack(), colour = "grey10", linewidth = 0.1) +
   facet_wrap(~cat_place_of_death) +
-  # scale_colour_viridis_d(direction = -1) +
   scale_fill_viridis_d(direction = -1) +
   scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-  labs(x = NULL, y = NULL) 
+  labs(x = NULL, y = NULL, title = "Age group") +
+  theme(plot.title = element_text(hjust = 0.5))
 )
+
+(fig_sex <-
+    sex_by_pod %>%
+    mutate(n_male = (n/prop)-n) %>%
+    rename(n_female = n) %>%
+    pivot_longer(cols = c(n_female,n_male), values_to = "n", names_to = "sex", names_transform = ~str_remove(.x, "n\\_")) %>%
+    ggplot(
+      data = .,
+      aes(x = val_cohort_year, y = n, group = sex, fill = sex)
+    ) +
+    geom_col(position = position_dodge(width = 0.8, preserve = "total"), colour = "grey10", linewidth = 0.1) +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = -1) +
+    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Sex") +
+    theme(plot.title = element_text(hjust = 0.5))
+    )
+
+(
+  fig_marstat <- 
+    marstat_by_pod %>%
+    mutate(cat_marital_status_condensed = fct_rev(cat_marital_status_condensed)) %>%
+    filter(cat_marital_status_condensed != "Missing") %>%
+    ggplot(
+      data = .,
+      aes(x = val_cohort_year, y = n, group = cat_marital_status_condensed, fill = cat_marital_status_condensed)
+    ) +
+    geom_col(position = position_stack(), colour = "grey10", linewidth = 0.1) +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = 1) +
+    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Marital status") +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    guides(fill=guide_legend(nrow=2,byrow=TRUE))  # two row legend
+)
+
+(
+  fig_ethnicity <- 
+    ethnicity_by_pod %>%
+    mutate(cat_ethnic_group_collapsed = fct_relevel(cat_ethnic_group_collapsed, "White")) %>%
+    ggplot(
+      data = .,
+      aes(x = val_cohort_year, y = n, group = cat_ethnic_group_collapsed, fill = cat_ethnic_group_collapsed)
+    ) +
+    geom_col(position = position_stack(), colour = "grey10", linewidth = 0.1) +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = -1) +
+    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Ethnicity") +
+    theme(plot.title = element_text(hjust = 0.5))
+)
+
+
+# geography plots ---------------------------------------------------------
+
+(fig_simd <- 
+    simd_by_pod %>%
+    filter(!is.na(val_simd_quintile)) %>%
+    mutate(
+      val_simd_quintile = if_else(val_simd_quintile==1, "1 (most deprived)", as.character(val_simd_quintile)),
+      val_simd_quintile = factor(val_simd_quintile, levels = unique(val_simd_quintile))
+      ) %>%
+    ggplot(
+      data = .,
+      aes(x = val_cohort_year, y = n, group = val_simd_quintile, fill = val_simd_quintile)
+    ) +
+    geom_col(position = position_dodge(width = 0.8, preserve = "total"), colour = "grey10", linewidth = 0.1) +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = 1) +
+    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Deprivation") +
+    theme(plot.title = element_text(hjust = 0.5))
+)
+
+(fig_ur2 <-
+    ur2_by_pod %>%
+    drop_na(cat_ur2) %>%
+    ggplot(
+      data = .,
+      aes(x = val_cohort_year, y = n, group = cat_ur2, fill = cat_ur2)
+    ) +
+    geom_col(position = position_stack(), colour = "grey10", linewidth = 0.1) +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = -1) +
+    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Urban-rural location") +
+    theme(plot.title = element_text(hjust = 0.5))
+)
+
+
+# clinical / palliative characteristics plots -----------------------------
+# TODO: unify the order of factors & colour palette
+# TODO: grey dashed line for average across place of death?
+
+(fig_num_cod <-
+   num_cod_by_pod %>%
+   ggplot(
+     aes(
+       x = val_cohort_year,
+       y = m,
+       ymin = ci_lo,
+       ymax = ci_hi,
+       colour = cat_place_of_death,
+       shape = cat_place_of_death,
+       group = cat_place_of_death
+     )
+   ) +
+   geom_line() +
+   geom_errorbar(width = 0.2) + 
+   geom_point(size = rel(2)) +
+   scale_colour_viridis_d(direction = -1) +
+   scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+   labs(x = NULL, y = NULL, title = "Recorded causes of death") +
+   theme(plot.title = element_text(hjust = 0.5))
+)
+
+(fig_comorb_index <-
+   comorb_by_pod %>%
+   filter(measure == "Elixhauser comorbidity index") %>%
+   ggplot(
+     aes(
+       x = val_cohort_year,
+       y = m,
+       ymin = ci_lo,
+       ymax = ci_hi,
+       colour = cat_place_of_death,
+       shape = cat_place_of_death,
+       group = cat_place_of_death
+     )
+   ) +
+   geom_line() +
+   geom_errorbar(width = 0.2) + 
+   geom_point(size = rel(2)) +
+   scale_colour_viridis_d(direction = -1) +
+   scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+   labs(x = NULL, y = NULL, title = "Elixhauser comorbidity index") +
+   theme(plot.title = element_text(hjust = 0.5))
+)
+
+(fig_num_comorb <-
+   comorb_by_pod %>%
+   filter(measure == "Number of comorbidities incl. in the Elixhauser index") %>%
+   ggplot(
+     aes(
+       x = val_cohort_year,
+       y = m,
+       ymin = ci_lo,
+       ymax = ci_hi,
+       colour = cat_place_of_death,
+       shape = cat_place_of_death,
+       group = cat_place_of_death
+     )
+   ) +
+   geom_line() +
+   geom_errorbar(width = 0.2) + 
+   geom_point(size = rel(2)) +
+   scale_colour_viridis_d(direction = -1) +
+   scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+   labs(x = NULL, y = NULL, title = "Comorbidities") +
+   theme(plot.title = element_text(hjust = 0.5))
+)
+
+(fig_palliative_care_needs <- 
+    pall_care_needs_by_pod %>%
+    filter(cat_place_of_death!="All") %>%
+    ggplot(
+      data = .,
+      aes(x = val_cohort_year, y = n, group = cat_place_of_death, fill = cat_place_of_death)
+    ) +
+    geom_col(position = position_dodge(width = 0.8, preserve = "total"), colour = "grey10", linewidth = 0.1) +
+    scale_fill_viridis_d(direction = 1) +
+    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Palliative care needs") +
+    theme(plot.title = element_text(hjust = 0.5))
+)
+
+
+# (
+#   fig_comorb_distribution <- 
+#     num_comorb_inferred_from_categories_by_pod %>%
+#     mutate(cat_comorb = fct_lump_lowfreq(factor(val_comorb), other_level = "9+")) %>%
+#     ggplot(
+#       data = .,
+#       aes(x = cat_comorb, fill = cat_comorb, group = cat_comorb)
+#     ) +
+#     geom_bar(colour = "grey10") +
+#     facet_grid(cat_place_of_death ~ val_cohort_year) +
+#     scale_fill_viridis_d(direction = -1) +
+#     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+#     labs(x = NULL, y = NULL) 
+# )
+
+
+# compose plots -----------------------------------------------------------
+
+
+(fig_demography_1 <- 
+    wrap_plots(
+      fig_age_group_5,
+      fig_sex, 
+      ncol = 1
+    ) +
+   plot_annotation(tag_levels = "a")
+)
+
+(fig_demography_2 <- 
+   wrap_plots(
+     fig_marstat,
+     fig_ethnicity, 
+     ncol = 1
+   ) +
+    plot_annotation(tag_levels = "a")
+)
+
+(fig_geography <- 
+    wrap_plots(
+      fig_simd,
+      fig_ur2, 
+      ncol = 1
+    ) +
+    plot_annotation(tag_levels = "a")
+)
+
+(fig_clinical <-
+    wrap_plots(
+      fig_palliative_care_needs,
+      fig_num_cod,
+      fig_comorb_index,
+      fig_num_comorb,
+      ncol = 2, guides = "collect"
+    ) +
+    plot_annotation(tag_levels = "a")
+  )
+
+
+# save plots --------------------------------------------------------------
+
+fig_width_inches = 8
+fig_height_inches = 12
+
+save_plot <- 
+  function(plot, filename, width = fig_width_inches, height = fig_height_inches) {
+    ggsave(
+      plot = plot,
+      filename = paste0(dir_output, filename),
+      width = width,
+      height = height,
+      units = "in",
+      dpi = 300,
+      bg = "white"
+    )
+  }
+
+save_plot(
+  plot = fig_demography_1,
+  filename = "fig1_age_sex.png"
+)
+
+save_plot(
+  plot = fig_demography_2,
+  filename = "fig2_marstat_ethnicity.png"
+)
+
+save_plot(
+  plot = fig_geography,
+  filename = "fig3_simd_ur2.png"
+)
+
+
+save_plot(
+  plot = fig_clinical,
+  filename = "fig4_clinical.png",
+  width = 12,
+  height = 12
+)
+
+
+
