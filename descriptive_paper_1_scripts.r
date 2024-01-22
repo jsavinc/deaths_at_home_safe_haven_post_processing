@@ -8,6 +8,29 @@
 dir_output <- 
   "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/descriptive paper 1/"
 
+levels_place_of_death <- c("Hospital", "Home", "Care home & other", 
+                           "All")
+
+
+# functions ---------------------------------------------------------------
+
+code_place_of_death_consistently <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      ## shorten to "Home"
+      cat_place_of_death = if_else(cat_place_of_death == "Home & non-institution", true = "Home", false = cat_place_of_death),
+      cat_place_of_death = factor(cat_place_of_death, levels = levels_place_of_death)
+    )
+}
+
+# shorten_to_home <- function(data_tbl) {
+#   data_tbl %>%
+#     mutate(
+#       cat_place_of_death = 
+#         fct_recode(cat_place_of_death, Home = "Home & non-institution")
+#     )
+# }
+
 # packages ----------------------------------------------------------------
 
 library(tidyverse)
@@ -30,24 +53,29 @@ cohort_by_pod <-
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/outputs/cohort_size_pod.csv") %>%
   repeat_data_adding_a_catchall_category(var_to_change = cat_place_of_death, label_for_catchall = "All") %>%
   group_by(val_cohort_year, cat_place_of_death) %>%
-  summarise(n=sum(n), .groups = "drop")
+  summarise(n=sum(n), .groups = "drop") %>%
+  code_place_of_death_consistently
 
 pod <- cohort_by_pod %>%
   group_by(val_cohort_year, cat_place_of_death=="All") %>%
   mutate(prop = n / sum(n)) %>%
   ungroup %>%
-  select(val_cohort_year, cat_place_of_death, n, prop)
+  select(val_cohort_year, cat_place_of_death, n, prop) %>%
+  code_place_of_death_consistently
 
 ## note, these aren't broken down by place of death and are of limited use
 demographics_of_cohort <- 
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/cohort_demographics.csv")
 
 age_by_pod <- 
-  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_age_cohort_pod.csv")
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_age_cohort_pod.csv") %>%
+  code_place_of_death_consistently
+
 ## some age groups merged
 age_group_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/age_by_pod.csv") %>%
   pivot_annual_to_long() %>%
-  parse_n_prop(col_n_prop = n_prop)
+  parse_n_prop(col_n_prop = n_prop) %>%
+  code_place_of_death_consistently
 
 ## this is aggregated by cause of death but there's also an 'all causes' category
 sex_by_pod <- 
@@ -55,17 +83,20 @@ sex_by_pod <-
   filter(cat_cod_nrs == "All causes") %>%
   select(-cat_cod_nrs) %>%  # won't need this for now
   pivot_annual_to_long() %>%
-  parse_n_prop(col_n_prop = n_prop)
+  parse_n_prop(col_n_prop = n_prop) %>%
+  code_place_of_death_consistently
 
 marstat_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/marstat_by_pod.csv") %>%
   pivot_annual_to_long() %>%
   parse_n_prop(col_n_prop = n_prop) %>%
-  mutate(cat_marital_status_condensed = factor(cat_marital_status_condensed, levels = unique(cat_marital_status_condensed)))
+  mutate(cat_marital_status_condensed = factor(cat_marital_status_condensed, levels = unique(cat_marital_status_condensed))) %>%
+  code_place_of_death_consistently
 
 ethnicity_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/ethnicity_by_pod.csv") %>%
   pivot_annual_to_long() %>%
   parse_n_prop(col_n_prop = n_prop) %>%
-  mutate(cat_ethnic_group_collapsed = factor(cat_ethnic_group_collapsed, levels = unique(cat_ethnic_group_collapsed)))
+  mutate(cat_ethnic_group_collapsed = factor(cat_ethnic_group_collapsed, levels = unique(cat_ethnic_group_collapsed))) %>%
+  code_place_of_death_consistently
 
 ## rounded to nearest 10
 simd_by_pod <-
@@ -77,7 +108,8 @@ simd_by_pod <-
   ## quintiles within each PoD
   group_by(val_cohort_year, cat_place_of_death) %>%
   mutate(prop = n/sum(n)) %>%
-  ungroup
+  ungroup %>%
+  code_place_of_death_consistently
 
 ur8_by_pod <-
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/place_of_death_by_ur_and_cohort.csv") %>%
@@ -87,7 +119,8 @@ ur8_by_pod <-
   ## ur is reported as proportion of each UR level by PoD; for this paper I think I need proportion of URs across each PoD
   group_by(val_cohort_year, cat_place_of_death) %>%
   mutate(prop = n/sum(n)) %>%
-  ungroup
+  ungroup %>%
+  code_place_of_death_consistently
 
 ur2_by_pod <-
   ur8_by_pod %>%
@@ -103,6 +136,7 @@ num_cod_by_pod <-
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_cod_count.csv") %>%
   pivot_annual_to_long(new_col = "mean_ci") %>%
   parse_m_ci(col_m_ci = mean_ci) %>%
+  code_place_of_death_consistently %>%
   left_join(
     cohort_by_pod %>% rename(denominator = n),
     by = c("cat_place_of_death", "val_cohort_year")
@@ -112,13 +146,15 @@ num_cod_by_pod <-
 num_cod_categorised_by_pod <- 
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/cod_count_categorised_by_pod.csv") %>%
   pivot_annual_to_long() %>%
-  parse_n_prop(col_n_prop = n_prop)
+  parse_n_prop(col_n_prop = n_prop) %>%
+  code_place_of_death_consistently
 
 ## this includes both number of comorbidities & elixhauser index
 comorb_by_pod <- 
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_comorb_index.csv") %>%
   pivot_annual_to_long(new_col = "mean_ci") %>%
   parse_m_ci(col_m_ci = mean_ci) %>%
+  code_place_of_death_consistently %>%
   left_join(
     cohort_by_pod %>% rename(denominator = n),
     by = c("cat_place_of_death", "val_cohort_year")
@@ -129,7 +165,8 @@ comorb_by_pod <-
 num_comorb_categorised_by_pod <- 
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/comorb_count_categorised_by_pod.csv") %>%
   pivot_annual_to_long() %>%
-  parse_n_prop(col_n_prop = n_prop)
+  parse_n_prop(col_n_prop = n_prop) %>%
+  code_place_of_death_consistently
 
 ## recalculated from the breakdown by sex
 pall_care_needs_by_pod <- 
@@ -143,7 +180,8 @@ pall_care_needs_by_pod <-
     denominator = sum(denominator), 
     .groups="drop"
     ) %>%
-  mutate(prop = n / denominator)
+  mutate(prop = n / denominator) %>%
+  code_place_of_death_consistently
 
 # TODO: import the breakdowns of pall care needs by other variables if needed
 
@@ -220,7 +258,6 @@ table1 <-
   pivot_wider(names_from = val_cohort_year, values_from = value) %>%
   mutate(
     measure = factor(measure, levels = unique(measure)),
-    cat_place_of_death = factor(cat_place_of_death, levels = c(order_place_of_death, "All"))
     ) %>%
   arrange(measure, cat_place_of_death) %>%
   mutate(levels = replace_na(levels, " ")) %>%
@@ -374,7 +411,6 @@ supplementary_table1 <-
   pivot_wider(names_from = val_cohort_year, values_from = value) %>%
   mutate(
     measure = factor(measure, levels = unique(measure)),
-    cat_place_of_death = factor(cat_place_of_death, levels = order_place_of_death)
   ) %>%
   arrange(measure, cat_place_of_death) %>%
   ## leaves repeat entries in table blank for nicer formatting
@@ -416,7 +452,6 @@ supplementary_table2 <-
   pivot_wider(names_from = val_cohort_year, values_from = value) %>%
   mutate(
     measure = factor(measure, levels = unique(measure)),
-    cat_place_of_death = factor(cat_place_of_death, levels = c(order_place_of_death,"All"))
   ) %>%
   arrange(measure, cat_place_of_death) %>%
   ## leaves repeat entries in table blank for nicer formatting
@@ -443,6 +478,48 @@ write.xlsx(
 
 
 # plots -------------------------------------------------------------------
+
+
+# demography plots illustrating proportions in table2 ---------------------
+
+(fig_marstat_proportions <-
+   marstat_by_pod %>%
+   filter(cat_marital_status_condensed != "Missing") %>%
+   ggplot(
+     data = .,
+     aes(x = val_cohort_year, y = prop, group = cat_marital_status_condensed, colour = cat_marital_status_condensed, shape = cat_marital_status_condensed)
+   ) +
+   geom_line() +
+   geom_point(size = rel(3)) +
+   facet_wrap(~cat_place_of_death) +
+   scale_colour_viridis_d(direction = 1, option = "H") +
+   # scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+   scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
+   labs(x = NULL, y = NULL, title = "Marital status") +
+   theme(plot.title = element_text(hjust = 0.5)) +
+   guides(fill=guide_legend(nrow=2,byrow=TRUE))  # two row legend
+)
+
+(fig_simd_proportions <- 
+    simd_by_pod %>%
+    filter(!is.na(val_simd_quintile)) %>%
+    mutate(
+      val_simd_quintile = if_else(val_simd_quintile==1, "1 (most deprived)", as.character(val_simd_quintile)),
+      val_simd_quintile = factor(val_simd_quintile, levels = unique(val_simd_quintile))
+    ) %>%
+    ggplot(
+      data = .,
+      aes(x = val_cohort_year, y = prop, group = val_simd_quintile, colour = val_simd_quintile, shape = val_simd_quintile)
+    ) +
+    geom_line() +
+    geom_point(size = rel(3)) +
+    facet_wrap(~cat_place_of_death) +
+    scale_colour_viridis_d(direction = 1, option = "H") +
+    scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Deprivation") +
+    theme(plot.title = element_text(hjust = 0.5))
+)
+
 
 # demography plots --------------------------------------------------------
 
@@ -564,16 +641,17 @@ fig_age_group_5 <-
        ymax = ci_hi,
        colour = cat_place_of_death,
        shape = cat_place_of_death,
-       group = cat_place_of_death
+       group = cat_place_of_death,
+       linetype = cat_place_of_death
      )
    ) +
    geom_line() +
    geom_errorbar(width = 0.2) + 
    geom_point(size = rel(2)) +
-   scale_colour_viridis_d(direction = -1) +
+   scale_colour_viridis_d(option = "H", direction = 1) +
    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-   labs(x = NULL, y = NULL, title = "Recorded causes of death") +
-   theme(plot.title = element_text(hjust = 0.5))
+   scale_linetype_manual(values = c(rep("solid", 3), "dashed")) +
+   labs(x = NULL, y = NULL, title = "Recorded causes of death")
 )
 
 (fig_comorb_index <-
@@ -587,14 +665,16 @@ fig_age_group_5 <-
        ymax = ci_hi,
        colour = cat_place_of_death,
        shape = cat_place_of_death,
-       group = cat_place_of_death
+       group = cat_place_of_death,
+       linetype = cat_place_of_death
      )
    ) +
    geom_line() +
    geom_errorbar(width = 0.2) + 
    geom_point(size = rel(2)) +
-   scale_colour_viridis_d(direction = -1) +
+    scale_colour_viridis_d(option = "H", direction = 1) +
    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+   scale_linetype_manual(values = c(rep("solid", 3), "dashed")) +
    labs(x = NULL, y = NULL, title = "Elixhauser comorbidity index") +
    theme(plot.title = element_text(hjust = 0.5))
 )
@@ -610,14 +690,16 @@ fig_age_group_5 <-
        ymax = ci_hi,
        colour = cat_place_of_death,
        shape = cat_place_of_death,
-       group = cat_place_of_death
+       group = cat_place_of_death,
+       linetype = cat_place_of_death
      )
    ) +
    geom_line() +
    geom_errorbar(width = 0.2) + 
    geom_point(size = rel(2)) +
-   scale_colour_viridis_d(direction = -1) +
+    scale_colour_viridis_d(option = "H", direction = 1) +
    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+   scale_linetype_manual(values = c(rep("solid", 3), "dashed")) +
    labs(x = NULL, y = NULL, title = "Comorbidities") +
    theme(plot.title = element_text(hjust = 0.5))
 )
@@ -627,12 +709,12 @@ fig_age_group_5 <-
     filter(cat_place_of_death!="All") %>%
     ggplot(
       data = .,
-      aes(x = val_cohort_year, y = n, group = cat_place_of_death, fill = cat_place_of_death)
+      aes(x = val_cohort_year, y = n, group = cat_place_of_death, fill = cat_place_of_death), 
     ) +
-    geom_col(position = position_dodge(width = 0.8, preserve = "total"), colour = "grey10", linewidth = 0.1) +
-    scale_fill_viridis_d(direction = 1) +
+    geom_col(position = position_dodge(width = 0.8, preserve = "total"), colour = "grey10", linewidth = 0.1, show.legend = FALSE) +
+    scale_fill_viridis_d(option = "H", direction = 1, drop = FALSE) +
     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-    labs(x = NULL, y = NULL, title = "Palliative care needs") +
+    labs(x = NULL, y = NULL, title = "People with palliative care needs") +
     theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -667,7 +749,8 @@ fig_age_group_5 <-
 
 (fig_demography_2 <- 
    wrap_plots(
-     fig_marstat,
+     # fig_marstat,
+     fig_marstat_proportions,  # replaced with line graph, more informative
      fig_ethnicity, 
      ncol = 1
    ) +
@@ -676,7 +759,8 @@ fig_age_group_5 <-
 
 (fig_geography <- 
     wrap_plots(
-      fig_simd,
+      # fig_simd,  # replaced with line graph, better view of distributions
+      fig_simd_proportions,
       fig_ur2, 
       ncol = 1
     ) +
@@ -713,6 +797,7 @@ save_plot <-
     )
   }
 
+
 save_plot(
   plot = fig_demography_1,
   filename = "fig1_age_sex.png"
@@ -735,6 +820,3 @@ save_plot(
   width = 12,
   height = 12
 )
-
-
-
