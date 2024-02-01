@@ -792,7 +792,7 @@ save_plot <-
       width = width,
       height = height,
       units = "in",
-      dpi = 300,
+      dpi = 600,
       bg = "white"
     )
   }
