@@ -40,7 +40,22 @@ library(patchwork)
 source("./FUNCTIONS.R")  # load common functions
 
 
+# set figure theme --------------------------------------------------------
 
+theme_descriptive_paper_1 <-
+  theme_minimal(base_size = 7) +
+  theme(
+    text = element_text(family = "sans"),
+    panel.grid.minor = element_blank(),
+    axis.title.y = element_text(margin = margin(0, 20, 0, 0)),
+    # remove gap to the left of y axis title and below the x axis title
+    axis.title.x = element_text(margin = margin(20, 0, 0, 0)),
+    axis.text = element_text(size = 9),
+    legend.title = element_blank(),
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 60, hjust = 1)
+  )
+theme_set(theme_descriptive_paper_1)
 # load & wrangle data -----------------------------------------------------
 
 ## load urban-rural table for the different level folds
@@ -495,7 +510,7 @@ write.xlsx(
    scale_colour_viridis_d(direction = 1, option = "H") +
    # scale_y_continuous(labels = scales::comma, n.breaks = 6) +
    scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
-   labs(x = NULL, y = NULL, title = "Marital status") +
+   labs(x = NULL, y = NULL, title = "Marital status (%)") +
    theme(plot.title = element_text(hjust = 0.5)) +
    guides(fill=guide_legend(nrow=2,byrow=TRUE))  # two row legend
 )
@@ -516,7 +531,7 @@ write.xlsx(
     facet_wrap(~cat_place_of_death) +
     scale_colour_viridis_d(direction = 1, option = "H") +
     scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
-    labs(x = NULL, y = NULL, title = "Deprivation") +
+    labs(x = NULL, y = NULL, title = "Deprivation (%)") +
     theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -534,7 +549,7 @@ fig_age_group_5 <-
   facet_wrap(~cat_place_of_death) +
   scale_fill_viridis_d(direction = -1) +
   scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-  labs(x = NULL, y = NULL, title = "Age group") +
+  labs(x = NULL, y = NULL, title = "Age group (N)") +
   theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -551,7 +566,7 @@ fig_age_group_5 <-
     facet_wrap(~cat_place_of_death) +
     scale_fill_viridis_d(direction = -1) +
     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-    labs(x = NULL, y = NULL, title = "Sex") +
+    labs(x = NULL, y = NULL, title = "Sex (N)") +
     theme(plot.title = element_text(hjust = 0.5))
     )
 
@@ -568,7 +583,7 @@ fig_age_group_5 <-
     facet_wrap(~cat_place_of_death) +
     scale_fill_viridis_d(direction = 1) +
     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-    labs(x = NULL, y = NULL, title = "Marital status") +
+    labs(x = NULL, y = NULL, title = "Marital status (N)") +
     theme(plot.title = element_text(hjust = 0.5)) +
     guides(fill=guide_legend(nrow=2,byrow=TRUE))  # two row legend
 )
@@ -585,7 +600,7 @@ fig_age_group_5 <-
     facet_wrap(~cat_place_of_death) +
     scale_fill_viridis_d(direction = -1) +
     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-    labs(x = NULL, y = NULL, title = "Ethnicity") +
+    labs(x = NULL, y = NULL, title = "Ethnicity (N)") +
     theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -607,7 +622,7 @@ fig_age_group_5 <-
     facet_wrap(~cat_place_of_death) +
     scale_fill_viridis_d(direction = 1) +
     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-    labs(x = NULL, y = NULL, title = "Deprivation") +
+    labs(x = NULL, y = NULL, title = "Deprivation (N)") +
     theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -622,7 +637,7 @@ fig_age_group_5 <-
     facet_wrap(~cat_place_of_death) +
     scale_fill_viridis_d(direction = -1) +
     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-    labs(x = NULL, y = NULL, title = "Urban-rural location") +
+    labs(x = NULL, y = NULL, title = "Urban-rural location (N)") +
     theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -651,7 +666,8 @@ fig_age_group_5 <-
    scale_colour_viridis_d(option = "H", direction = 1) +
    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
    scale_linetype_manual(values = c(rep("solid", 3), "dashed")) +
-   labs(x = NULL, y = NULL, title = "Recorded causes of death")
+   labs(x = NULL, y = NULL, title = "Recorded causes of death (mean)") +
+   theme(plot.title = element_text(hjust = 0.5))
 )
 
 (fig_comorb_index <-
@@ -675,7 +691,7 @@ fig_age_group_5 <-
     scale_colour_viridis_d(option = "H", direction = 1) +
    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
    scale_linetype_manual(values = c(rep("solid", 3), "dashed")) +
-   labs(x = NULL, y = NULL, title = "Elixhauser comorbidity index") +
+   labs(x = NULL, y = NULL, title = "Elixhauser comorbidity index (mean)") +
    theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -700,7 +716,7 @@ fig_age_group_5 <-
     scale_colour_viridis_d(option = "H", direction = 1) +
    scale_y_continuous(labels = scales::comma, n.breaks = 6) +
    scale_linetype_manual(values = c(rep("solid", 3), "dashed")) +
-   labs(x = NULL, y = NULL, title = "Comorbidities") +
+   labs(x = NULL, y = NULL, title = "Comorbidities (mean)") +
    theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -714,7 +730,7 @@ fig_age_group_5 <-
     geom_col(position = position_dodge(width = 0.8, preserve = "total"), colour = "grey10", linewidth = 0.1, show.legend = FALSE) +
     scale_fill_viridis_d(option = "H", direction = 1, drop = FALSE) +
     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
-    labs(x = NULL, y = NULL, title = "People with palliative care needs") +
+    labs(x = NULL, y = NULL, title = "People with palliative care needs (N)") +
     theme(plot.title = element_text(hjust = 0.5))
 )
 
@@ -781,42 +797,50 @@ fig_age_group_5 <-
 
 # save plots --------------------------------------------------------------
 
-fig_width_inches = 8
-fig_height_inches = 12
+# fig_width_inches = 8
+# fig_height_inches = 12
+fig_width_cm = 14
+fig_height_cm = 19
 
 save_plot <- 
-  function(plot, filename, width = fig_width_inches, height = fig_height_inches) {
-    ggsave(
-      plot = plot,
-      filename = paste0(dir_output, filename),
-      width = width,
-      height = height,
-      units = "in",
-      dpi = 600,
-      bg = "white"
+  function(plot, filename, width = fig_width_cm, height = fig_height_cm) {
+    walk(
+      .x = c(".png", ".emf", ".svg"),
+      .f = function(extension) {
+        ggsave(
+          plot = plot,
+          filename = paste0(dir_output, filename, extension),
+          width = width,
+          height = height,
+          units = "cm",
+          dpi = 300,
+          bg = "white"
+        )
+      }
     )
   }
 
 
 save_plot(
   plot = fig_demography_1,
-  filename = "fig1_age_sex.png"
+  filename = "fig1_age_sex"
 )
 
 save_plot(
   plot = fig_demography_2,
-  filename = "fig2_marstat_ethnicity.png"
+  filename = "fig2_marstat_ethnicity"
 )
 
 save_plot(
   plot = fig_geography,
-  filename = "fig3_simd_ur2.png"
+  filename = "fig3_simd_ur2"
 )
 
 
 save_plot(
   plot = fig_clinical,
-  filename = "fig4_clinical.png",
-  width = 12,
-  height = 12
+  filename = "fig4_clinical",
+  width = 19,
+  height = 19
 )
+
