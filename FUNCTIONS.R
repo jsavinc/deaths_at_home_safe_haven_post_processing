@@ -42,15 +42,19 @@ variable_names <- tribble(
 
 # Theme settings ----------------------------------------------------------
 
-theme_set(theme_minimal(base_size = 12) +
-            theme(panel.grid.minor = element_blank(),
-                  axis.title.y = element_text(margin = margin(0, 20, 0, 0)),  # remove gap to the left of y axis title and below the x axis title
-                  axis.title.x = element_text(margin = margin(20, 0, 0, 0)),
-                  axis.text = element_text(size = 9),
-                  legend.title = element_blank(),
-                  legend.position = "bottom",
-                  axis.text.x = element_text(angle=60, hjust=1)
-            ))
+## define theme so I can modify it later
+theme_js <- 
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank(),
+        axis.title.y = element_text(margin = margin(0, 20, 0, 0)),  # remove gap to the left of y axis title and below the x axis title
+        axis.title.x = element_text(margin = margin(20, 0, 0, 0)),
+        axis.text = element_text(size = 9),
+        legend.title = element_blank(),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle=60, hjust=1)
+  )
+## set default theme to this
+theme_set(theme_js)
 
 
 # Print all ---------------------------------------------------------------
