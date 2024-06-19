@@ -35,7 +35,9 @@ code_place_of_death_consistently <- function(data_tbl) {
 
 library(tidyverse)
 library(openxlsx)
-library(patchwork)
+library(patchwork)  # for assembling plots
+library(ggedit)  # for editing plots after they've been defined
+
 
 source("./FUNCTIONS.R")  # load common functions
 
@@ -727,7 +729,7 @@ fig_age_group_5 <-
       data = .,
       aes(x = val_cohort_year, y = n, group = cat_place_of_death, fill = cat_place_of_death), 
     ) +
-    geom_col(position = position_dodge(width = 0.8, preserve = "total"), colour = "grey10", linewidth = 0.1, show.legend = FALSE) +
+    geom_col(position = position_dodge(width = 0.9, preserve = "total"), colour = "grey10", linewidth = 0.1, show.legend = FALSE) +
     scale_fill_viridis_d(option = "H", direction = 1, drop = FALSE) +
     scale_y_continuous(labels = scales::comma, n.breaks = 6) +
     labs(x = NULL, y = NULL, title = "People with palliative care needs (N)") +
@@ -844,3 +846,37 @@ save_plot(
   height = 19
 )
 
+
+# Same plots without error bars -------------------------------------------
+
+## Only the "clinical" plots use error bars - I use {ggedit} to `remove_geom()`
+
+fig_num_cod_no_errorbars <-
+  fig_num_cod %>%
+  remove_geom(geom = "errorbar")
+
+fig_comorb_index_no_errorbar <-
+  fig_comorb_index %>%
+  remove_geom(geom = "errorbar")
+
+fig_num_comorb_no_errorbar <-
+  fig_num_comorb %>%
+  remove_geom(geom = "errorbar")
+
+(fig_clinical_no_errorbars <-
+   wrap_plots(
+     fig_palliative_care_needs,
+     fig_num_cod_no_errorbars,
+     fig_comorb_index_no_errorbar,
+     fig_num_comorb_no_errorbar,
+     ncol = 2, guides = "collect"
+   ) +
+   plot_annotation(tag_levels = "a")
+)
+
+save_plot(
+  plot = fig_clinical_no_errorbars,
+  filename = "fig4_clinical_no_errorbars",
+  width = 19,
+  height = 19
+)
