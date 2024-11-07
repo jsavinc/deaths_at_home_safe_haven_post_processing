@@ -880,3 +880,39 @@ save_plot(
   width = 19,
   height = 19
 )
+
+
+# Splitting results into main paper and supplementary files ---------------
+
+(fig_clinical_main <-
+   wrap_plots(
+     fig_palliative_care_needs,
+     fig_comorb_index_no_errorbar,
+     ncol = 2, guides = "collect"
+   ) +
+   plot_annotation(tag_levels = "a")
+)
+
+
+(fig_clinical_supplementary <-
+    wrap_plots(
+      fig_num_comorb_no_errorbar + labs(title="Number of comorbidities (mean)"),
+      fig_num_cod_no_errorbars,
+      ncol = 2, guides = "collect"
+    ) +
+    plot_annotation(tag_levels = "a")
+)
+
+save_plot(
+  plot = fig_clinical_main,
+  filename = "fig4_clinical_main_paper",
+  width = 14, height = 15
+)
+
+save_plot(
+  plot = fig_clinical_supplementary,
+  filename = "fig1_supplementary",
+  width = 14, height = 15
+)
+
+
