@@ -24,10 +24,17 @@ order_ur8 <-
 
 variable_names <- tribble(
   ~short_name, ~long_name,
+  "cat_cohort", "Study period",
+  "amt_age", "Age",
+  "amt_age_10", "Age (10 years)",
   "cat_sex", "Sex",
   "cat_age_5", "Age group",
+  "cat_age_decades", "Age group",
   "cat_marital_status_condensed", "Marital status",
+  "cat_ethnic_group_collapsed", "Ethnicity",
   "cat_simd_quintile", "SIMD quintile (1=most deprived)",
+  "val_simd_quintile", "SIMD quintile (1=most deprived)",
+  "cat_ur2", "Urban-rural 2-fold",
   "cat_ur3", "Urban-rural 3-fold",
   "cat_drive_to_hosp_mins", "Driving time to nearest hospital (minutes)",
   "bin_palliative_murtagh_mid_upper", "Palliative care needs estimate",
@@ -37,7 +44,12 @@ variable_names <- tribble(
   "amt_spells_sas_365d", "Number of ambulance uses in last 12 months",
   "amt_spells_nhs24_365d", "Number of NHS24 calls in last 12 months",
   "val_elixhauser_index_vanwalraven", "Elixhauser comorbidity index",
-  "amt_pandemic_days", "Days alive during pandemic"
+  "val_elixhauser_index_vanwalraven_5", "Elixhauser comorbidity index (5)",
+  "amt_pandemic_days", "Days alive during pandemic",
+  "amt_drive_to_hosp_mins", "Driving time to nearest hospital (minutes)",
+  "cat_cod_nrs", "Cause of death (NRS categories)",
+  "amt_disp_bnf_sections_365d_5", "Unique BNF sections dispensed (5)",
+  "amt_disp_bnf_sections_365d_5", "Unique BNF sections dispensed (5)",
 )
 
 # Theme settings ----------------------------------------------------------
@@ -242,3 +254,4 @@ sd_pooled <- function(sd, n) {
   sd_pooled <- sqrt(sum((n-1)*(sd^2))/sum(n-1))
   return(sd_pooled)
 }
+
