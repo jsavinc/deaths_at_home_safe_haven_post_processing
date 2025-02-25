@@ -205,6 +205,61 @@ bnf_sections_by_pod <-
   filter(variable == "sections") %>%
   code_place_of_death_consistently
 
+
+# functions for merging years & pod ---------------------------------------
+
+## helper function to collapse place of death into Home vs Institution
+## also to collapse pandemic vs pre-pandemic period
+merge_pod_and_years_n <- function(data_tbl) {
+  data_tbl %>%
+    filter(cat_place_of_death != "All") %>%
+    mutate(
+      cat_place_of_death = fct_collapse(.f = cat_place_of_death, "Home" = c("Home"), "Institutional" = c("Hospital","Care home & other")) %>%
+        fct_relevel("Home"),
+      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+        fct_relevel("2015-20")
+    ) %>%
+    group_by(val_cohort_year, cat_place_of_death, .add = TRUE) %>%
+    summarise(n = sum(n), .groups = "drop")
+  # summarise(n = sum(n), .groups = "keep") %>%
+  # ungroup(val_cohort_year, cat_place_of_death)
+}
+merge_pod_and_years_m_sd <- function(data_tbl) {
+  data_tbl %>%
+    filter(cat_place_of_death != "All") %>%
+    mutate(
+      cat_place_of_death = fct_collapse(.f = cat_place_of_death, "Home" = c("Home"), "Institutional" = c("Hospital","Care home & other")) %>%
+        fct_relevel("Home"),
+      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+        fct_relevel("2015-20")
+    ) %>%
+    group_by(val_cohort_year, cat_place_of_death, .add = TRUE) %>%
+    summarise(mean = weighted.mean(mean, n_deaths),
+              sd = sd_pooled(sd, n_deaths),
+              .groups = "drop")
+}
+## helper function to merge all pre-pandemic years into one
+merge_years_n <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+        fct_relevel("2015-20")
+    ) %>%
+    group_by(val_cohort_year, .add = TRUE) %>%
+    summarise(n = sum(n), .groups = "drop")
+}
+merge_years_m_sd <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+        fct_relevel("2015-20")
+    ) %>%
+    group_by(val_cohort_year, .add = TRUE) %>%
+    summarise(mean = weighted.mean(mean, n_deaths),
+              sd = sd_pooled(sd, n_deaths),
+              .groups = "drop")
+}
+
 # compose tables ----------------------------------------------------------
 
 # outline of data wrangling for odds ratio tables
@@ -256,57 +311,6 @@ age_group_by_pod_2 <-
 
 # compile odds ratios table --------------------------------------------------
 
-## helper function to collapse place of death into Home vs Institution
-## also to collapse pandemic vs pre-pandemic period
-merge_pod_and_years_n <- function(data_tbl) {
-  data_tbl %>%
-    filter(cat_place_of_death != "All") %>%
-    mutate(
-      cat_place_of_death = fct_collapse(.f = cat_place_of_death, "Home" = c("Home"), "Institutional" = c("Hospital","Care home & other")) %>%
-        fct_relevel("Home"),
-      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
-        fct_relevel("2015-20")
-      ) %>%
-    group_by(val_cohort_year, cat_place_of_death, .add = TRUE) %>%
-    summarise(n = sum(n), .groups = "drop")
-    # summarise(n = sum(n), .groups = "keep") %>%
-    # ungroup(val_cohort_year, cat_place_of_death)
-}
-merge_pod_and_years_m_sd <- function(data_tbl) {
-  data_tbl %>%
-    filter(cat_place_of_death != "All") %>%
-    mutate(
-      cat_place_of_death = fct_collapse(.f = cat_place_of_death, "Home" = c("Home"), "Institutional" = c("Hospital","Care home & other")) %>%
-        fct_relevel("Home"),
-      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
-        fct_relevel("2015-20")
-    ) %>%
-    group_by(val_cohort_year, cat_place_of_death, .add = TRUE) %>%
-    summarise(mean = weighted.mean(mean, n_deaths),
-              sd = sd_pooled(sd, n_deaths),
-              .groups = "drop")
-}
-## helper function to merge all pre-pandemic years into one
-merge_years_n <- function(data_tbl) {
-  data_tbl %>%
-    mutate(
-      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
-        fct_relevel("2015-20")
-      ) %>%
-    group_by(val_cohort_year, .add = TRUE) %>%
-    summarise(n = sum(n), .groups = "drop")
-}
-merge_years_m_sd <- function(data_tbl) {
-  data_tbl %>%
-    mutate(
-      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
-        fct_relevel("2015-20")
-    ) %>%
-    group_by(val_cohort_year, .add = TRUE) %>%
-    summarise(mean = weighted.mean(mean, n_deaths),
-              sd = sd_pooled(sd, n_deaths),
-              .groups = "drop")
-}
 
 table_with_odds <-
   pmap(
