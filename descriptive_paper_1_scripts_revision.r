@@ -567,6 +567,39 @@ revised_clinical_table2 %>%
     file = paste0(dir_output, "revised_clinical_table_merged_years.csv"))
 
 
+# increase in people aged 70 or more --------------------------------------
+
+# age_group_by_pod %>%
+#   filter(cat_age_decades %in% c("81-90", "90+")) %>%
+#   arrange(cat_place_of_death) %>%
+#   view()
+
+age_group_by_pod %>%
+  filter(val_cohort_year %in% c("2019-20","2020-21")) %>%
+  filter(cat_age_decades %in% c("81-90", "90+")) %>%
+  count(cat_place_of_death, val_cohort_year, wt = n) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = n) %>%
+  mutate(
+    change_percent = `2020-21` / `2019-20`,
+    change_n = `2020-21` - `2019-20`
+  )
+
+age_group_by_pod %>%
+  filter(cat_age_decades %in% c("81-90", "90+")) %>%
+  group_by(cat_place_of_death) %>%
+  merge_years_n() %>%
+  pivot_wider(names_from = val_cohort_year, values_from = n) %>%
+  mutate(
+    change_percent = `2020-21` / (`2015-20`/5),
+    change_n = `2020-21` - (`2015-20`/5)
+    )
+  
+age_group_by_pod %>%
+  filter(cat_age_decades %in% c("81-90", "90+")) %>%
+  group_by(val_cohort_year, cat_place_of_death) %>%
+  summarise(n = sum(n), prop = sum(prop), .groups = "drop") %>%
+  group
+
 # regression table -------------------------------------------------------
 
 # without interactions
@@ -742,3 +775,172 @@ tbl_m1_with_ame <-
   ungroup
 
 write_csv(tbl_m1_with_ame, file = paste0(dir_output, "regression_coefs_and_ame_m1.csv"))
+
+
+
+# forest plot of odds ratios of models ------------------------------------
+
+tbl_m1_and_m2_for_plot <-
+  bind_rows(
+    # m1
+    regression_coefs %>%
+      mutate(is_interaction = FALSE) %>%
+      transmute(
+        model = "Model 1",
+        variable,
+        level,
+        aOR = estimate,
+        conf.low, conf.high,
+      )
+    ,
+    # m2
+    regression_coefs_interactions %>%
+      mutate(
+        is_interaction = if_else(str_detect(level, "Pandemic\\:"), TRUE, FALSE, missing = FALSE),
+        variable = if_else(
+          condition = is_interaction,
+          true =
+            str_extract(level, pattern = paste(regression_coefs_interactions$variable, collapse="|")),
+          false = variable,
+          missing = variable
+        ),
+        level = if_else(
+          condition = is_interaction,
+          true = str_remove(level, pattern = paste0("Pandemic\\:",variable)) %>%
+            if_else(.=="", NA_character_, .),
+          false = level,
+          missing = level
+        )
+      ) %>%
+      transmute(
+        model = "Model 2: interactions",
+        variable,
+        level,
+        aOR = estimate,
+        conf.low, conf.high,
+        # p = scales::label_pvalue(accuracy = 0.0001)(p.value),
+        is_interaction
+      )
+  ) %>%
+  mutate(  # replace TRUE with Yes
+    level = if_else(level == "TRUE", "Yes", level)
+  ) %>%
+  mutate(variable = replace_with_long_variable_name(variable)) %>%
+  mutate(variable = factor(variable, levels = unique(variable))) %>%
+  arrange(variable, factor(level, levels = unique(level)), is_interaction) %>%
+  # mutate(level = if_else(is_interaction & variable!="Study period", paste0(level, " × Pandemic"), level)) %>%
+  mutate(
+    term_type = case_when(
+      model == "Model 1" ~ "Model 1",
+      model == "Model 2: interactions" & !is_interaction ~ "Model 2: main effects",
+      model == "Model 2: interactions" & is_interaction ~ "Model 2: interactions",
+      TRUE ~ NA_character_
+    ) %>% factor(., levels = c("Model 1", "Model 2: main effects", "Model 2: interactions")),
+    var_label = if_else(
+      condition = is.na(level),
+      true = variable,
+      false = paste0(variable,": ",level)
+      ),
+    var_label = factor(var_label, levels = unique(var_label))
+    )
+
+# TODO: change sizing so the plot is nice & readable
+(fig_aor_m1_and_m2 <-
+  tbl_m1_and_m2_for_plot %>%
+  filter(variable!="(Intercept)") %>%
+  ggplot(
+    aes(
+      x = aOR,
+      xmin = conf.low,
+      xmax = conf.high,
+      y = fct_rev(var_label),
+      linewidth = term_type,
+      shape = term_type,
+      colour = term_type,
+      group = fct_rev(model)
+    )
+  ) +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = "grey40") +
+  geom_point(position = position_dodge(width = 0.7), size = rel(2)) +
+  geom_linerange(position = position_dodge(width = 0.7)) +
+  # scale_colour_manual(values = scales::brewer_pal(type = "div", palette = "Dark2")(3)) +
+  scale_colour_manual(values = c("black", scales::brewer_pal(type = "div", palette = "Dark2")(2))) +
+  # scale_colour_manual(values = c("black", viridisLite::viridis(2, end = 0.7))) +
+  scale_shape_manual(values = c(16,3,4)) +
+  scale_linewidth_manual(values = c(rel(0.5), rel(1), rel(0.5))) +
+  scale_x_log10(breaks = scales::breaks_pretty(n = 6)) +
+  geom_hline(yintercept = seq(1,n_distinct(tbl_m1_and_m2_for_plot$var_label)-1)+0.5, linewidth = 0.2, colour = "grey50") +
+  # facet_grid(cols=vars(model)) +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.background = element_rect(fill = NULL),
+    legend.position = "top"
+    ) +
+  # guides(colour=guide_legend(ncol=2), shape=guide_legend(ncol=2)) +
+  labs(
+    x = "aOR", y = NULL, 
+    caption = paste0(
+      c(
+        "Line segments represent 95% CI. aOR shown on logarithmic scale.",
+        "Reference values: Marital status:Single; Urban-rural:Urban; SIMD:1",
+        "Intercept not shown."
+        ),
+      collapse = "\n"
+    )
+  )
+)
+
+fig_width_cm = 14
+fig_height_cm = 12
+
+save_plot <- 
+  function(plot, filename, width = fig_width_cm, height = fig_height_cm) {
+    walk(
+      .x = c(".png", ".emf", ".svg"),
+      .f = function(extension) {
+        ggsave(
+          plot = plot,
+          filename = paste0(dir_output, filename, extension),
+          width = width,
+          height = height,
+          units = "cm",
+          dpi = 300,
+          bg = "white"
+        )
+      }
+    )
+  }
+
+save_plot(plot = fig_aor_m1_and_m2, filename = "fig_aor_m1_and_m2", width = fig_width_cm, height = fig_height_cm)
+
+
+# report frequency of comorbidities used in elixhauser --------------------
+
+comorb_by_pod <- 
+  read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/associations with home death, logistic regression/part 3/tbl_frequency_comorbidities_by_pod.csv") %>%
+  code_place_of_death_consistently()
+
+tbl_comorb <-
+  comorb_by_pod %>%
+  group_by(cat_place_of_death, cat_comorbidity) %>%
+  merge_years_n() %>%
+  left_join(
+    cohort_by_pod %>% 
+      group_by(cat_place_of_death) %>% 
+      merge_years_n() %>% 
+      rename(denominator=n),
+    join_by(cat_place_of_death, val_cohort_year)
+    ) %>%
+  mutate(
+    cat_comorbidity = factor(cat_comorbidity, levels = unique(cat_comorbidity)),
+    prop = n/denominator,
+    n_prop = calculate_n_prop(n, prop),
+    cat_place_of_death = fct_relevel(cat_place_of_death, "Home")
+    ) %>%
+  arrange(cat_place_of_death) %>%
+  select(-c(n, prop, denominator)) %>%
+  pivot_wider(names_from = c(val_cohort_year,cat_place_of_death), values_from = n_prop) %>%
+  arrange(cat_comorbidity)
+
+tbl_comorb %>%
+  write_csv(file = paste0(dir_output, "frequency_of_comorbidities_by_pod.csv"))
