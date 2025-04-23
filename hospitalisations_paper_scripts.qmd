@@ -1,0 +1,102 @@
+---
+title: "Hospitalisations paper scripts"
+author: "Jan Savinc"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Overview
+
+Here I process data from the safe haven into neat tables and graphs for the hospitalisations paper
+
+
+# Preliminaries
+
+```{r}
+library(tidyverse)
+library(patchwork)
+
+source("./FUNCTIONS.R")  # load common functions
+```
+
+
+# Load data
+
+This may be slow as I'm reading from the X:/ drive
+
+```{r}
+tbl_paths <- 
+  tribble(
+    ~model, ~path,
+    "hosp_poisson", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_poisson.csv",
+    "hosp_negbin", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_negbin.csv",
+    "hosp_zinb", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_zinb.csv",
+    "los_poisson", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_los_poisson.csv",
+    "los_negbin", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_los_negbin.csv",
+    "los_zinb", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_los_zinb.csv",
+  )
+
+model_coefficients <- 
+  pmap(
+  .l = tbl_paths,
+  .f = ~read_csv(file = .y)
+) %>%
+  set_names(nm = tbl_paths$model)
+
+model_coefficients_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_rse.csv")
+model_coefficients_other <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_other.csv")
+model_coefficients_ols <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_ols.csv")
+
+model_ames <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_ames.csv")
+```
+
+# Compare coefficients
+
+For hospitalisations, the coefficients are very similar
+
+```{r}
+model_coefficients %>%
+  list_rbind(names_to = "model") %>% 
+  filter(str_detect(model, "hosp\\_")) %>%
+  filter(is.na(Component) | Component == "conditional") %>%
+  mutate(
+    IRR = coalesce(IRR, exp_coef),
+    IRR_CI_low = coalesce(IRR_CI_low, exp_CI_low),
+    IRR_CI_high = coalesce(IRR_CI_high, exp_CI_high),
+    intercept = variable=="(Intercept)"
+  ) %>%
+  ggplot(
+    aes(x = IRR, y = paste0(variable,": ",level), xmin = IRR_CI_low, xmax = IRR_CI_high, shape = model)
+  ) +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = "grey75") +
+  geom_point(size = rel(2), position = position_dodge(width = 1)) +
+  geom_linerange(position = position_dodge(width = 1)) +
+  facet_wrap(vars(intercept), scales = "free", nrow = 2) +
+  NULL
+```
+
+
+# Compare AMEs
+
+This is the main way I'm comparing between the different models since they adopt different methods: to compare between the zero-inflated negative binomial and all the others a common basis is needed, because the zero-inflated model produces 2 sets of coefficients, and they are not easily comparable
+
+## Days between discharge & death
+
+```{r}
+
+# TODO: the CIs on the Poisson look too small, plus it looks like the RSE versions of the Poisson AMEs aren't there?!
+# TODO: check the SH to see if something went wrong when computing these?
+# TODO: maybe change HC0 to HC3, or just set it to "sandwich" or whatever the default is? I just want a HC estimator of variance, don't really care which
+
+model_ames %>%
+  filter(str_detect(model, "discharge")) %>%
+  ggplot(
+    aes(x = estimate, y = paste0(term,": ",contrast), shape = model, xmin = conf.low, xmax = conf.high)
+  ) +
+  geom_point(size = rel(2), position = position_dodge(width = 1)) +
+  geom_linerange(position = position_dodge(width = 1))
+```
+
