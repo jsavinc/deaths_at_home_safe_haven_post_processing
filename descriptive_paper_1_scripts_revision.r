@@ -5,8 +5,16 @@
 dir_output <- 
   "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/descriptive paper 1/IJPDS/revision 1/"
 
+dir_output2 <- 
+  "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/descriptive paper 1/IJPDS/revision 2/"
+
 levels_place_of_death <- c("Hospital", "Home", "Care home & other", 
                            "All")
+
+# fig_width_inches = 8
+# fig_height_inches = 12
+fig_width_cm = 14
+fig_height_cm = 19
 
 
 # functions ---------------------------------------------------------------
@@ -20,12 +28,31 @@ code_place_of_death_consistently <- function(data_tbl) {
     )
 }
 
+save_plot <- 
+  function(plot, filename, width = fig_width_cm, height = fig_height_cm) {
+    walk(
+      .x = c(".png", ".emf", ".svg"),
+      .f = function(extension) {
+        ggsave(
+          plot = plot,
+          filename = paste0(dir_output2, filename, extension),
+          width = width,
+          height = height,
+          units = "cm",
+          dpi = 300,
+          bg = "white"
+        )
+      }
+    )
+  }
+
 # packages ----------------------------------------------------------------
 
 library(tidyverse)
 library(openxlsx)
 library(patchwork)  # for assembling plots
 library(ggedit)  # for editing plots after they've been defined
+library(gtsummary)  # for easy summaries & fisher's test of distributions
 
 
 source("./FUNCTIONS.R")  # load common functions
@@ -259,6 +286,19 @@ merge_years_m_sd <- function(data_tbl) {
               sd = sd_pooled(sd, n_deaths),
               .groups = "drop")
 }
+## helper function to add an "All" places of death category
+add_all_pod_n <- function(data_tbl, ...) {
+  bind_rows(
+    data_tbl,
+    data_tbl %>% 
+      group_by(...) %>%
+      summarise(
+        n = sum(n),
+        .groups = "drop",
+        cat_place_of_death = factor("All")
+        )
+  )
+}
 
 # compose tables ----------------------------------------------------------
 
@@ -307,7 +347,12 @@ age_group_by_pod_2 <-
   age_group_by_pod %>%
   # mutate(cat_age_5 = fct_collapse(cat_age_5, "18-44" = c("18-24", "25-44"))) %>%
   count(val_cohort_year, cat_place_of_death, cat_age_decades, wt = n)
-  
+
+
+# LOAD UNTIL ABOUT HERE TO GET STARTED CODING -----------------------------
+
+## above here are mostly functions & loading data
+
 
 # compile odds ratios table --------------------------------------------------
 
@@ -916,12 +961,12 @@ save_plot(plot = fig_aor_m1_and_m2, filename = "fig_aor_m1_and_m2", width = fig_
 
 # report frequency of comorbidities used in elixhauser --------------------
 
-comorb_by_pod <- 
+comorb_freq_by_pod <- 
   read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/associations with home death, logistic regression/part 3/tbl_frequency_comorbidities_by_pod.csv") %>%
   code_place_of_death_consistently()
 
 tbl_comorb <-
-  comorb_by_pod %>%
+  comorb_freq_by_pod %>%
   group_by(cat_place_of_death, cat_comorbidity) %>%
   merge_years_n() %>%
   left_join(
@@ -944,3 +989,572 @@ tbl_comorb <-
 
 tbl_comorb %>%
   write_csv(file = paste0(dir_output, "frequency_of_comorbidities_by_pod.csv"))
+
+
+# descriptives table with statistical test --------------------------------
+
+# A reviewer asked for a statistical test of difference of distributions in the
+# descriptives table - this is a bit silly because of the large sample size
+# (everything will be significantly different) but why not! The challenge will
+# be to convert the already summarised data into something I can run a test on
+# easily - e.g. gtsummary is best for this - I can uncount() the data for each
+# variable, and then run tbl_sumamry with the tests, and then merge the
+# resulting tables
+
+# TODO: iterate over variables, and for each variable, seperately test differences within each place of death (including All)
+# TODO: I only need the p-value for each combination, I don't need a neatly formatted table also
+
+data_for_revised_descriptive_table_3 <-
+  list(
+    "Age group, N (%)" = age_group_by_pod %>% rename(levels = cat_age_decades),
+    "Sex, N (%)" = sex_by_pod_2 %>% rename(levels = cat_sex) %>% 
+      add_all_pod_n(val_cohort_year, levels) %>%
+      group_by(val_cohort_year, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup,
+    "Marital status, N (%)" = marstat_by_pod %>% rename(levels = cat_marital_status_condensed) %>% 
+      add_all_pod_n(val_cohort_year, levels) %>%
+      group_by(val_cohort_year, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup,
+    "Ethnicity, N (%)" = ethnicity_by_pod %>% rename(levels = cat_ethnic_group_collapsed) %>% 
+      add_all_pod_n(val_cohort_year, levels) %>%
+      group_by(val_cohort_year, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup,
+    "Deprivation, N (%)" = simd_by_pod %>% rename(levels = cat_simd_quintile) %>% 
+      add_all_pod_n(val_cohort_year, levels) %>%
+      group_by(val_cohort_year, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup,
+    "Urban-rural classification, N (%)" = ur2_by_pod %>% rename(levels = cat_ur2) %>% 
+      add_all_pod_n(val_cohort_year, levels) %>%
+      group_by(val_cohort_year, cat_place_of_death) %>%
+      mutate(prop = n/sum(n)) %>%
+      ungroup
+  )
+
+revised_descriptive_table_categorical_3 <-
+  map(
+    .x = data_for_revised_descriptive_table_3,
+    .f = function(data_tbl) {
+      data_tbl %>%
+        group_by(cat_place_of_death, levels) %>%
+        merge_years_n() %>%
+        group_by(cat_place_of_death, val_cohort_year) %>%
+        mutate(prop = n/sum(n)) %>%
+        ungroup
+    }
+  ) %>%
+  list_rbind(names_to = "measure") %>%
+  mutate(value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})")) %>%
+  select(-c(n,prop)) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = value) %>%
+  mutate(
+    measure = factor(measure, levels = unique(measure)),
+  ) %>%
+  arrange(measure, cat_place_of_death)
+
+revised_descriptive_table_numeric_3 <-
+  age_by_pod %>%
+  (function(x) {
+    bind_rows(
+      x,
+      x %>% group_by(val_cohort_year) %>%
+        summarise(
+          cat_place_of_death = factor("All"),
+          mean = weighted.mean(mean, n_deaths),
+          sd = sd_pooled(sd, n_deaths),
+          n_deaths = sum(n_deaths),
+          .groups = "drop"
+        )
+    )
+  }) %>% 
+  group_by(cat_place_of_death) %>% 
+  merge_years_m_sd() %>%
+  mutate(
+    measure = "Age, Mean (SD)",
+    value = glue::glue("{round(mean,2)} ({round(sd,2)})"),
+    levels = " "
+  ) %>%
+  select(-c(mean,sd)) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = value)
+
+revised_descriptive_table_pod_table_3 <-
+  pod %>%
+  group_by(cat_place_of_death) %>%
+  merge_years_n() %>%
+  group_by(val_cohort_year, temp = cat_place_of_death=="All") %>%
+  mutate(
+    levels = " ",
+    prop = n/sum(n),
+    value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})"),
+    measure = "Place of death, N (%)"
+  ) %>%
+  ungroup %>%
+  select(-c(n, prop, temp)) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = value)
+
+revised_descriptive_table_3 <-
+  bind_rows(  # merge the table "chunks"
+    revised_descriptive_table_pod_table_3,
+    revised_descriptive_table_numeric_3,
+    revised_descriptive_table_categorical_3
+  ) %>%
+  # replace missing levels with "Missing"
+  replace_na(list(levels = "Missing")) %>%
+  ## leaves repeat entries in table blank for nicer formatting
+  pivot_wider(names_from = cat_place_of_death, values_from = c(`2015-20`,`2020-21`), names_vary = "slowest") %>%
+  group_by(measure) %>%
+  mutate(
+    # note: with pivoting place of death, this line is no longer needed
+    # cat_place_of_death = if_else(condition = duplicated(cat_place_of_death), true = " ", false = as.character(cat_place_of_death)),
+    measure = if_else(condition = duplicated(measure), true = " ", false = as.character(measure))
+  ) %>%
+  ungroup %>%
+  relocate(measure, levels)
+
+write_csv(revised_descriptive_table_3, file = paste0(dir_output2,"tbl_descriptives_with_all_pod_included.csv"))
+
+fisher_test_pod <-
+  pod %>%
+  group_by(cat_place_of_death) %>%
+  merge_years_n() %>%
+  filter(cat_place_of_death!="All") %>%
+  uncount(n) %>%
+  janitor::tabyl(val_cohort_year, cat_place_of_death, show_missing_levels = FALSE) %>%
+  janitor::fisher.test(simulate.p.value = TRUE, B = 1e4) %>%
+  broom::tidy()
+
+age_by_pod_3 <-
+  age_by_pod %>%
+  (function(x) {
+    bind_rows(
+      x,
+      x %>% group_by(val_cohort_year) %>%
+        summarise(
+          cat_place_of_death = factor("All"),
+          mean = weighted.mean(mean, n_deaths),
+          sd = sd_pooled(sd, n_deaths),
+          n_deaths = sum(n_deaths),
+          .groups = "drop"
+        )
+    )
+  }) %>% 
+  group_by(cat_place_of_death) %>% 
+  mutate(
+    val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+      fct_relevel("2015-20")
+  ) %>%
+  group_by(val_cohort_year, .add = TRUE) %>%
+  summarise(mean = weighted.mean(mean, n_deaths),
+            sd = sd_pooled(sd, n_deaths),
+            n_deaths = sum(n_deaths),
+            .groups = "drop")
+
+t_test_age_pod <-
+  age_by_pod_3 %>%
+  group_by(cat_place_of_death) %>%
+  reframe(
+    broom::tidy(
+    BSDA::tsum.test(
+      mean.x = mean[1], s.x = sd[1], n.x = n_deaths[1],
+      mean.y = mean[2], s.y = sd[2], n.y = n_deaths[2]))
+  ) %>%
+  mutate(
+    p_pretty = scales::label_pvalue()(p.value)
+  )
+
+# Now compute the statistical tests that were requested
+# this is complicated but it works
+tbl_fisher_test_descriptives <-
+  map(
+    # map over the component
+    .x = 
+      data_for_revised_descriptive_table_3,
+    .f = function(data_tbl) {
+      data_tbl %>%
+        group_by(cat_place_of_death, levels) %>%
+        merge_years_n() %>%
+        mutate(levels = fct_na_value_to_level(f = levels, level = "Missing")) %>%
+        uncount(n) %>%
+        nest(.by = cat_place_of_death) %>%
+        mutate(
+          test = map(
+            .x = data,
+            .f = function(data_tbl) {
+              data_tbl %>% 
+                janitor::tabyl(., levels, val_cohort_year, show_na = TRUE) %>%
+                janitor::fisher.test(simulate.p.value = TRUE, B = 1e4) %>%
+                broom::tidy()
+            }
+          )
+        ) %>% 
+        select(-data) %>%
+        unnest(test)
+    }
+  ) %>%
+    list_rbind(names_to = "measure")
+
+# Note: two-sided hypothesis, Fisher's test with simulated p values based on 10^4 replicates
+tbl_fisher_test_descriptives_wide <-
+  tbl_fisher_test_descriptives %>%
+  select(-c(method,alternative)) %>%
+  ## leaves repeat entries in table blank for nicer formatting
+  pivot_wider(names_from = cat_place_of_death, values_from = p.value) %>%
+  mutate(across(2:5, ~scales::label_pvalue()(.x)))
+
+write_csv(tbl_fisher_test_descriptives_wide, file = paste0(dir_output2, "tbl_fisher_test_descriptives_categorical.csv"))
+
+
+# TODO: delete the below, used for testing
+age_group_by_pod %>% rename(levels = cat_age_decades) %>%
+  group_by(cat_place_of_death, levels) %>%
+  merge_years_n() %>%
+  uncount(n) %>%
+  nest(.by = cat_place_of_death) %>%
+  mutate(
+    test = map(
+      .x = data,
+      .f = function(data_tbl) {
+        data_tbl %>% 
+          janitor::tabyl(., levels, val_cohort_year) %>%
+          janitor::fisher.test(simulate.p.value = TRUE, B = 1e4) %>%
+          broom::tidy()
+      }
+    )
+  ) %>% 
+  select(-data) %>%
+  unnest(test)
+  
+
+# frequency table of comorbidities ----------------------------------------
+
+## Note, I already have a column for "All" PoD, but I still need to compute
+## distributional tests for each comorbidity
+
+# TODO: what am I testing? difference in proportion of comorbidity within each PoD, but between years
+# TODO: is proportion test better than exact binomial test? (exact binom. reqires a hypothesisesd proportion)
+
+tbl_prop_test_comorb_freq <-
+  comorb_freq_by_pod %>%
+  group_by(cat_place_of_death, cat_comorbidity) %>%
+  merge_years_n() %>%
+  left_join(
+    cohort_by_pod %>% 
+      group_by(cat_place_of_death) %>% 
+      merge_years_n() %>% 
+      rename(denominator=n),
+    join_by(cat_place_of_death, val_cohort_year)
+  ) %>%
+  mutate(
+    cat_comorbidity = factor(cat_comorbidity, levels = unique(cat_comorbidity)),
+    prop = n/denominator,
+    n_prop = calculate_n_prop(n, prop),
+    cat_place_of_death = fct_relevel(cat_place_of_death, "Home")
+  ) %>%
+  group_by(cat_place_of_death, cat_comorbidity) %>%
+  reframe(
+    broom::tidy(prop.test(x = n, n = denominator)),
+  ) %>%
+  mutate(
+    p = scales::label_pvalue()(p.value)
+  )
+
+tbL_p_values_comorb_freq <-
+  tbl_prop_test_comorb_freq %>%
+  select(cat_place_of_death, cat_comorbidity, p) %>%
+  pivot_wider(names_from = cat_place_of_death, values_from = p)
+# TODO: merge the p-values with the frequency table - left-join the long table, then pivot widers
+
+tbl_comorb_with_p_values <-
+  comorb_freq_by_pod %>%
+  group_by(cat_place_of_death, cat_comorbidity) %>%
+  merge_years_n() %>%
+  left_join(
+    cohort_by_pod %>% 
+      group_by(cat_place_of_death) %>% 
+      merge_years_n() %>% 
+      rename(denominator=n),
+    join_by(cat_place_of_death, val_cohort_year)
+  ) %>%
+  mutate(
+    cat_comorbidity = factor(cat_comorbidity, levels = unique(cat_comorbidity)),
+    prop = n/denominator,
+    n_prop = calculate_n_prop(n, prop),
+    cat_place_of_death = fct_relevel(cat_place_of_death, "Home")
+  ) %>%
+  arrange(cat_place_of_death) %>%
+  select(-c(n, prop, denominator)) %>%
+  pivot_wider(names_from = c(val_cohort_year,cat_place_of_death), values_from = n_prop) %>%
+  arrange(cat_comorbidity)
+
+# tbl_prop_test_comorb_freq %>%
+#   write_csv(file = paste0(dir_output, "prop_test_frequency_of_comorbidities_by_pod.csv"))
+
+
+# table of univariate regression coefs ------------------------------------
+
+univariate_coefs <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/associations with home death, logistic regression/part 4/tbl_models_univariate.csv")
+
+tbl_univariate_coefs <-
+  univariate_coefs %>%
+  filter(variable != "(Intercept)") %>%  # don't report intercepts
+  mutate(
+    variable = replace_with_long_variable_name(variable),
+    or = estimate,
+    p = scales::label_pvalue()(p.value),
+    ci = str_c(sprintf("%.3f",signif(conf.low,3)), sprintf("%.3f",signif(conf.high,3)), sep = ",")
+  ) %>%
+  select(variable, or, p, ci)
+
+tbl_univariate_coefs %>%
+  write_csv(file = paste0(dir_output2, "tbl_univariate_coefs.csv"))
+
+
+# combined "univariate" interactions with full model ----------------------
+
+univariate_plus_interactions <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/associations with home death, logistic regression/part 4/tbl_models_univariate_plus_interaction.csv")
+full_model_one_interaction_each <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/associations with home death, logistic regression/part 4/tbl_models_with_one_interaction_each.csv")
+
+# TODO: maybe use patchwork to assemble individually-made plots for each model, dropping the missing interactions each time?
+full_model_one_interaction_each %>%
+  pivot_longer(cols = c(or_amt_age_10 : p_amt_disp_bnf_sections_365d_5), names_to = c("measure","model"), values_to = "value", names_pattern = "(or|ci\\_hi|ci\\_lo|p)\\_(.*)") %>%
+  pivot_wider(names_from = measure, values_from = value) %>%
+  mutate(var_level = str_c(variable, level, sep = ": ")) %>%
+  ggplot(
+    aes(x = or, xmin = ci_lo, xmax = ci_hi, colour = p < .05, y = var_level)
+    ) +
+    facet_wrap(facets = vars(model), ) +
+    geom_point() +
+    geom_errorbar()
+
+# TODO: make a pretty table, using only OR & significance level converted to *
+full_model_one_interaction_each %>%
+  pivot_longer(cols = c(or_amt_age_10 : p_amt_disp_bnf_sections_365d_5), names_to = c("measure","model"), values_to = "value", names_pattern = "(or|ci\\_hi|ci\\_lo|p)\\_(.*)") %>%
+  pivot_wider(names_from = measure, values_from = value) %>%
+  filter(!is.na(or)) %>%
+  mutate(
+    is_interaction = if_else(str_detect(level, "Pandemic\\:"), TRUE, FALSE, missing = FALSE),
+    variable = if_else(
+      condition = is_interaction,
+      true =
+        str_extract(level, pattern = paste(full_model_one_interaction_each$variable, collapse="|")),
+      false = variable,
+      missing = variable
+    ),
+    level = if_else(
+      condition = is_interaction,
+      true = str_remove(level, pattern = paste0("Pandemic\\:",variable)) %>%
+        if_else(.=="", NA_character_, .),
+      false = level,
+      missing = level
+    )
+  ) %>%
+  mutate(
+    or_p = str_c(signif(or, 3), gtools::stars.pval(p))
+  ) %>%
+  select(variable, level, model, or_p, is_interaction) %>%
+  pivot_wider(names_from = model, values_from = or_p, id_cols = c(variable, level, is_interaction))
+
+tbl_m1_and_m2_for_plot <-
+  bind_rows(
+    # m1
+    regression_coefs %>%
+      mutate(is_interaction = FALSE) %>%
+      transmute(
+        model = "Model 1",
+        variable,
+        level,
+        aOR = estimate,
+        conf.low, conf.high,
+      )
+    ,
+    # m2
+    regression_coefs_interactions %>%
+      mutate(
+        is_interaction = if_else(str_detect(level, "Pandemic\\:"), TRUE, FALSE, missing = FALSE),
+        variable = if_else(
+          condition = is_interaction,
+          true =
+            str_extract(level, pattern = paste(regression_coefs_interactions$variable, collapse="|")),
+          false = variable,
+          missing = variable
+        ),
+        level = if_else(
+          condition = is_interaction,
+          true = str_remove(level, pattern = paste0("Pandemic\\:",variable)) %>%
+            if_else(.=="", NA_character_, .),
+          false = level,
+          missing = level
+        )
+      ) %>%
+      transmute(
+        model = "Model 2: interactions",
+        variable,
+        level,
+        aOR = estimate,
+        conf.low, conf.high,
+        # p = scales::label_pvalue(accuracy = 0.0001)(p.value),
+        is_interaction
+      )
+  ) %>%
+  mutate(  # replace TRUE with Yes
+    level = if_else(level == "TRUE", "Yes", level)
+  ) %>%
+  mutate(variable = replace_with_long_variable_name(variable)) %>%
+  mutate(variable = factor(variable, levels = unique(variable))) %>%
+  arrange(variable, factor(level, levels = unique(level)), is_interaction) %>%
+  # mutate(level = if_else(is_interaction & variable!="Study period", paste0(level, " × Pandemic"), level)) %>%
+  mutate(
+    term_type = case_when(
+      model == "Model 1" ~ "Model 1",
+      model == "Model 2: interactions" & !is_interaction ~ "Model 2: main effects",
+      model == "Model 2: interactions" & is_interaction ~ "Model 2: interactions",
+      TRUE ~ NA_character_
+    ) %>% factor(., levels = c("Model 1", "Model 2: main effects", "Model 2: interactions")),
+    var_label = if_else(
+      condition = is.na(level),
+      true = variable,
+      false = paste0(variable,": ",level)
+    ),
+    var_label = factor(var_label, levels = unique(var_label))
+  )
+
+
+# plots instead of demographics table -------------------------------------
+
+# for this, I'm merging figures for 2015-2019, and also looking at Home vs
+# Everywhere else/Institution
+
+# Also note the new "decades" age group has a merged 18-40 category in CH
+# deaths, so I need to convert this for hospital deaths also
+
+data_for_revised_plots <-
+  map(.x = data_for_revised_descriptive_table,
+      .f = function(data_tbl) {
+        data_tbl %>%
+        mutate(
+          # merge 18-30 and 31-40 groups in non-home decedents
+          levels = if_else(
+            condition = levels %in% c("18-30", "31-40") & cat_place_of_death != "Home",
+            true = as.factor("18-40"),
+            false = levels
+          )
+        ) %>%
+        group_by(levels) %>%
+        merge_pod_and_years_n() %>%
+        group_by(val_cohort_year, cat_place_of_death) %>%
+        mutate(prop = n/sum(n)) %>%
+        ungroup %>%
+        mutate(levels = fct_drop(levels))
+      })
+
+(fig_age <-
+    data_for_revised_plots$`Age group, N (%` %>%
+    ggplot(
+      data = .,
+      aes(x = levels, y = prop, group = val_cohort_year, fill = val_cohort_year)
+    ) +
+    geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+    facet_wrap(~cat_place_of_death, scales = "free_x") +
+    scale_fill_viridis_d(direction = 1, option = "D") +
+    # scale_y_continuous(labels = scales::comma, n.breaks = 6) +
+    scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Age groups (%)") +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "right")
+)
+
+(fig_marstat <-
+  data_for_revised_plots$`Marital status, N (%` %>%
+  filter(levels != "Missing") %>%
+  mutate(levels = fct_relabel(levels, ~str_extract(.x, pattern = "^\\w+\\b"))) %>%
+  ggplot(
+    data = .,
+    aes(x = levels, y = prop, group = val_cohort_year, fill = val_cohort_year)
+  ) +
+  geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+  facet_wrap(~cat_place_of_death) +
+  scale_fill_viridis_d(direction = 1, option = "D") +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
+  labs(x = NULL, y = NULL, title = "Marital status (%)") +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "right")
+)
+
+(fig_sex <-
+    data_for_revised_plots$`Sex, N (%` %>%
+    ggplot(
+      data = .,
+      aes(x = levels, y = prop, group = val_cohort_year, fill = val_cohort_year)
+    ) +
+    geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = 1, option = "D") +
+    scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Sex (%)") +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "right")
+)
+
+# probably best not to show ethnicity because it's so dominated by white (and I
+# report the interesting increase in Asian group in text)
+(fig_ethnicity <-
+    data_for_revised_plots$`Ethnicity, N (%` %>%
+    ggplot(
+      data = .,
+      aes(x = levels, y = prop, group = val_cohort_year, fill = val_cohort_year)
+    ) +
+    geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = 1, option = "D") +
+    scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Ethnicity (%)") +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "right")
+)
+
+(fig_deprivation <-
+    data_for_revised_plots$`Deprivation, N (%` %>%
+    filter(!is.na(levels)) %>%
+    # mutate(levels = fct_relabel(levels, ~str_replace(.x, "1", "1=most deprived"))) %>%
+    ggplot(
+      data = .,
+      aes(x = levels, y = prop, group = val_cohort_year, fill = val_cohort_year)
+    ) +
+    geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = 1, option = "D") +
+    scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Deprivation (1=most deprived) (%)") +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "right")
+)
+
+(fig_ur <-
+    data_for_revised_plots$`Urban-rural classification, N (%` %>%
+    filter(!is.na(levels)) %>%
+    ggplot(
+      data = .,
+      aes(x = levels, y = prop, group = val_cohort_year, fill = val_cohort_year)
+    ) +
+    geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+    facet_wrap(~cat_place_of_death) +
+    scale_fill_viridis_d(direction = 1, option = "D") +
+    scale_y_continuous(labels = scales::label_percent(accuracy = 1), n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Urban-rural location (%)") +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "right")
+)
+
+
+# Compose plot of demographics --------------------------------------------
+
+(fig_demographics <- 
+  wrap_plots(
+    list(fig_age, guide_area(), fig_sex, fig_marstat, fig_deprivation, fig_ur), 
+    guides = "collect", 
+    ncol = 2
+  ) & 
+  scale_fill_viridis_d(option = "A")
+)
+
+save_plot(
+  plot = fig_demographics,
+  filename = "fig_demographics"
+)
