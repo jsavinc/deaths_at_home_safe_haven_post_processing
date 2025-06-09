@@ -100,3 +100,21 @@ model_ames %>%
   geom_linerange(position = position_dodge(width = 1))
 ```
 
+# Pretty coefficient table, using Poisson + RSE
+
+```{r}
+# TODO: change pandemic variable to have pre-pandemic as the reference...
+(tbl_model_coefficients_poisson_rse <-
+  model_coefficients_rse %>%
+  mutate(
+    variable = replace_with_long_variable_name(variable),
+    p = scales::label_pvalue()(p.value),
+    ci = paste0(signif(conf.low, 3), "-", signif(conf.high, 3))
+    ) %>%
+  select(-c(statistic, std.error, conf.low, conf.high, p.value)) %>%
+  mutate(model = str_remove(model, "\\_poisson\\_rse")) %>%
+  pivot_wider(names_from = model, values_from = c(estimate, ci, p), names_vary = "slowest"))
+
+view(tbl_model_coefficients_poisson_rse, title = "IRRs")
+```
+
