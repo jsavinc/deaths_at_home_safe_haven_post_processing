@@ -47,8 +47,8 @@ variable_names <- tribble(
   "val_elixhauser_index_vanwalraven_5", "Elixhauser comorbidity index (5)",
   "amt_pandemic_days", "Days alive during pandemic",
   "amt_drive_to_hosp_mins", "Driving time to nearest hospital (minutes)",
+  "amt_drive_to_hosp_mins_15", "Driving time to nearest hospital (15 min)",
   "cat_cod_nrs", "Cause of death (NRS categories)",
-  "amt_disp_bnf_sections_365d_5", "Unique BNF sections dispensed (5)",
   "amt_disp_bnf_sections_365d_5", "Unique BNF sections dispensed (5)",
 )
 
