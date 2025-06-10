@@ -1558,3 +1558,25 @@ save_plot(
   plot = fig_demographics,
   filename = "fig_demographics"
 )
+
+
+
+# palliative care needs by pod --------------------------------------------
+
+# here I compute the relative proportion of deaths with palliative care needs by PoD - what proportion of such deaths happened at home before and durign the pandemic?
+
+tbl_pall_care_needs <-
+  pall_care_needs_by_pod %>%
+  mutate(
+    val_cohort_year = fct_collapse(
+      .f = val_cohort_year,
+      "2015-20" = c("2015-16", "2016-17", "2017-18", "2018-19", "2019-20")
+    )
+  ) %>%
+  group_by(val_cohort_year, cat_place_of_death) %>%
+  summarise(across(c(n, denominator), sum), .groups = "drop") %>%
+  filter(cat_place_of_death!="All") %>%
+  group_by(val_cohort_year) %>%
+  mutate(prop = n/sum(n)) %>%
+  ungroup
+
