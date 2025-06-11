@@ -1207,34 +1207,131 @@ tbl_fisher_test_descriptives_wide <-
 write_csv(tbl_fisher_test_descriptives_wide, file = paste0(dir_output2, "tbl_fisher_test_descriptives_categorical.csv"))
 
 
-# TODO: delete the below, used for testing
-age_group_by_pod %>% rename(levels = cat_age_decades) %>%
-  group_by(cat_place_of_death, levels) %>%
-  merge_years_n() %>%
-  uncount(n) %>%
-  nest(.by = cat_place_of_death) %>%
-  mutate(
-    test = map(
-      .x = data,
-      .f = function(data_tbl) {
-        data_tbl %>% 
-          janitor::tabyl(., levels, val_cohort_year) %>%
-          janitor::fisher.test(simulate.p.value = TRUE, B = 1e4) %>%
-          broom::tidy()
-      }
+
+# statistical tests of pall care needs, comorb, medications ---------------
+
+# TODO: implement proportion/fisher test for both the covid/non-covid counts
+
+data_for_revised_clinical_table3 <-
+  list(
+    "Palliative care needs" = pall_care_needs_by_pod %>%
+      group_by(cat_place_of_death) %>%
+      mutate(
+        val_cohort_year = fct_collapse(.f = val_cohort_year, "2015-20" = c("2015-16", "2016-17", "2017-18", "2018-19", "2019-20")) %>%
+          fct_relevel("2015-20")
+      ) %>%
+      group_by(val_cohort_year, .add = TRUE) %>%
+      summarise(n = sum(n), denominator = sum(denominator), .groups = "drop") %>%
+      mutate(n_nonpall = denominator - n),
+    "EI" =
+      comorb_by_pod %>%
+      filter(measure == "Elixhauser comorbidity index") %>%
+      rename(n_deaths = denominator, mean = m) %>%
+      mutate(
+        val_cohort_year = fct_collapse(.f = val_cohort_year, "2015-20" = c("2015-16", "2016-17", "2017-18", "2018-19", "2019-20")) %>%
+          fct_relevel("2015-20")
+      ) %>%
+      group_by(val_cohort_year, cat_place_of_death) %>%
+      summarise(
+        mean = weighted.mean(mean, n_deaths),
+        sd = sd_pooled(sd, n_deaths),
+        n_deaths = sum(n_deaths),
+        .groups = "drop"
+      ),
+    "BNF sections" = 
+      bnf_sections_by_pod %>%
+      rename(n_deaths = n) %>%
+      group_by(cat_place_of_death) %>%
+      mutate(
+        val_cohort_year = fct_collapse(.f = val_cohort_year, "2015-20" = c("2015-16", "2016-17", "2017-18", "2018-19", "2019-20")) %>%
+          fct_relevel("2015-20")
+      ) %>%
+      group_by(val_cohort_year, cat_place_of_death) %>%
+      summarise(
+        mean = weighted.mean(mean, n_deaths),
+        sd = sd_pooled(sd, n_deaths),
+        n_deaths = sum(n_deaths),
+        .groups = "drop"
+      )
+  )
+
+# revised_clinical_table3_with_p_values <-
+
+pall_care_p_values <-
+  bind_rows(
+    # covid-included
+    data_for_revised_clinical_table3$`Palliative care needs` %>%
+      filter(val_cohort_year!="2020-21, excl. Covid") %>%
+      select(-denominator) %>%
+      pivot_longer(cols = c(n, n_nonpall), names_to="status", values_to="n") %>%
+      nest(.by = cat_place_of_death) %>%
+      mutate(
+        test = map(
+          .x = data,
+          .f = function(data_tbl) {
+            data_tbl %>%
+              uncount(n) %>%  # do an uncount step before computing a tabyl again in next line 
+              janitor::tabyl(., status, val_cohort_year, show_na = TRUE) %>%
+              janitor::fisher.test(simulate.p.value = TRUE, B = 1e4) %>%
+              broom::tidy()
+          }
+        )
+      ) %>% 
+      select(-data) %>%
+      unnest(test) %>%
+      mutate(bin_covid = "Covid-19 deaths included"),
+    # covid-excluded
+    data_for_revised_clinical_table3$`Palliative care needs` %>%
+      filter(val_cohort_year!="2020-21") %>%
+      select(-denominator) %>%
+      pivot_longer(cols = c(n, n_nonpall), names_to="status", values_to="n") %>%
+      nest(.by = cat_place_of_death) %>%
+      mutate(
+        test = map(
+          .x = data,
+          .f = function(data_tbl) {
+            data_tbl %>%
+              uncount(n) %>%  # do an uncount step before computing a tabyl again in next line 
+              janitor::tabyl(., status, val_cohort_year, show_na = TRUE) %>%
+              janitor::fisher.test(simulate.p.value = TRUE, B = 1e4) %>%
+              broom::tidy()
+          }
+        )
+      ) %>% 
+      select(-data) %>%
+      unnest(test) %>%
+      mutate(bin_covid = "Covid-19 deaths excluded")
+  ) %>%
+    relocate(bin_covid, cat_place_of_death) %>%
+    mutate(
+      p_pretty = scales::label_pvalue()(p.value),
+      stars = gtools::stars.pval(p.value)
     )
-  ) %>% 
-  select(-data) %>%
-  unnest(test)
-  
+
+clinical_t_tests <-
+  data_for_revised_clinical_table3[2:3] %>%
+  map(
+    function(data_tbl) {
+      data_tbl %>%
+      group_by(cat_place_of_death) %>%
+      reframe(
+        broom::tidy(
+          BSDA::tsum.test(
+            mean.x = mean[1], s.x = sd[1], n.x = n_deaths[1],
+            mean.y = mean[2], s.y = sd[2], n.y = n_deaths[2]))
+      ) %>%
+        mutate(
+          p_pretty = scales::label_pvalue()(p.value),
+          stars = gtools::stars.pval(p.value)
+        )
+    }
+  ) %>%
+  list_rbind(names_to = "Variable")
 
 # frequency table of comorbidities ----------------------------------------
 
 ## Note, I already have a column for "All" PoD, but I still need to compute
 ## distributional tests for each comorbidity
-
-# TODO: what am I testing? difference in proportion of comorbidity within each PoD, but between years
-# TODO: is proportion test better than exact binomial test? (exact binom. reqires a hypothesisesd proportion)
 
 tbl_prop_test_comorb_freq <-
   comorb_freq_by_pod %>%
@@ -1258,13 +1355,14 @@ tbl_prop_test_comorb_freq <-
     broom::tidy(prop.test(x = n, n = denominator)),
   ) %>%
   mutate(
-    p = scales::label_pvalue()(p.value)
+    p = scales::label_pvalue()(p.value),
+    stars = gtools::stars.pval(p.value)
   )
 
-tbL_p_values_comorb_freq <-
+tbl_p_values_comorb_freq <-
   tbl_prop_test_comorb_freq %>%
-  select(cat_place_of_death, cat_comorbidity, p) %>%
-  pivot_wider(names_from = cat_place_of_death, values_from = p)
+  select(cat_place_of_death, cat_comorbidity, stars) %>%
+  pivot_wider(names_from = cat_place_of_death, values_from = stars)
 # TODO: merge the p-values with the frequency table - left-join the long table, then pivot widers
 
 tbl_comorb_with_p_values <-
@@ -1284,13 +1382,23 @@ tbl_comorb_with_p_values <-
     n_prop = calculate_n_prop(n, prop),
     cat_place_of_death = fct_relevel(cat_place_of_death, "Home")
   ) %>%
+  left_join(
+    tbl_prop_test_comorb_freq %>% 
+      select(cat_place_of_death, cat_comorbidity, stars) %>%
+      mutate(val_cohort_year = as.factor("2020-21")),  # add factor so we only merge onto the RHS
+    join_by(cat_place_of_death, val_cohort_year, cat_comorbidity)
+  ) %>%
+  mutate(
+    stars = if_else(is.na(stars)|stars==" ", "", stars),
+    n_prop = str_c(n_prop, stars)
+    ) %>%
   arrange(cat_place_of_death) %>%
-  select(-c(n, prop, denominator)) %>%
+  select(-c(n, prop, denominator, stars)) %>%
   pivot_wider(names_from = c(val_cohort_year,cat_place_of_death), values_from = n_prop) %>%
   arrange(cat_comorbidity)
 
-# tbl_prop_test_comorb_freq %>%
-#   write_csv(file = paste0(dir_output, "prop_test_frequency_of_comorbidities_by_pod.csv"))
+tbl_comorb_with_p_values %>%
+  write_csv(file = paste0(dir_output2, "prop_test_frequency_of_comorbidities_by_pod.csv"))
 
 
 # table of univariate regression coefs ------------------------------------
