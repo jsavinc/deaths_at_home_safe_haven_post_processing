@@ -20,61 +20,202 @@ library(tidyverse)
 library(patchwork)
 
 source("./FUNCTIONS.R")  # load common functions
+
+dir_output <- "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/hospitalisations paper/"
 ```
 
 
-# Load data
+# Load data & wrangle
 
-This may be slow as I'm reading from the X:/ drive
+This may be slow as I'm reading from the X:/ drive.
+
+I've exported the model coefficients in a piecemeal fashion, so I'll load them in and merge into a big table containing coefficients for all the models I've made (except for OLS models - these should go into a separate table because they don't report ORs/IRRs).
+
+The hospitalisations and LOS/days in hospital models were exported with the pandemic period as the reference period, as opposed to pre-pandemic, so I'll recalculate the intercept and pandemic coefficient for those. (the OLS models for the same were exported later, and already have the pre-pandemic as the reference level)
 
 ```{r}
-tbl_paths <- 
-  tribble(
-    ~model, ~path,
-    "hosp_poisson", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_poisson.csv",
-    "hosp_negbin", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_negbin.csv",
-    "hosp_zinb", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_zinb.csv",
-    "los_poisson", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_los_poisson.csv",
-    "los_negbin", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_los_negbin.csv",
-    "los_zinb", "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_los_zinb.csv",
-  )
+## helper function to recalculate the intercept and coefficient for the pandemic
+## period variable, in cases where the reference level was set to the pandemic
+## variable
+change_reference_to_prepandemic <- function(tbl_coef) {
+  # new intercept = old intercept + pandemic coef
+  tbl_coef$Coefficient[tbl_coef$variable == "(Intercept)"] <-
+    tbl_coef$Coefficient[tbl_coef$variable == "(Intercept)"] +
+    tbl_coef$Coefficient[tbl_coef$variable == "cat_cohort"]
+  # new pandemic coefficient = negative old pandemic coef
+  tbl_coef$Coefficient[tbl_coef$variable == "cat_cohort"] <-
+    -tbl_coef$Coefficient[tbl_coef$variable == "cat_cohort"]
+  
+  # 95% CI, intercept = low CI of old intercept + low CI of old pandemic coef
+  tbl_coef$CI_low[tbl_coef$variable == "(Intercept)"] <- 
+    tbl_coef$CI_low[tbl_coef$variable == "(Intercept)"] +
+    tbl_coef$CI_low[tbl_coef$variable == "cat_cohort"]
+  # ditto for high CI limit
+  tbl_coef$CI_high[tbl_coef$variable == "(Intercept)"] <-
+    tbl_coef$CI_high[tbl_coef$variable == "(Intercept)"] +
+    tbl_coef$CI_high[tbl_coef$variable == "cat_cohort"]
+    
+  # 95% CI, pandemic coefficient
+  temp_lo_ci <- tbl_coef$CI_low[tbl_coef$variable == "cat_cohort"]  # save value, can't change two values simultaneously!
+  tbl_coef$CI_low[tbl_coef$variable == "cat_cohort"] <- -tbl_coef$CI_high[tbl_coef$variable == "cat_cohort"]
+  tbl_coef$CI_high[tbl_coef$variable == "cat_cohort"] <- -temp_lo_ci
+  
+  # change factor lvl
+  tbl_coef$level[tbl_coef$variable == "cat_cohort"] <- "Pandemic"
+  
+  # recompute IRR
+  tbl_coef$IRR[tbl_coef$variable == "(Intercept)"] <- exp(tbl_coef$Coefficient[tbl_coef$variable == "(Intercept)"])
+  tbl_coef$IRR_CI_low[tbl_coef$variable == "(Intercept)"] <- exp(tbl_coef$CI_low[tbl_coef$variable == "(Intercept)"])
+  tbl_coef$IRR_CI_high[tbl_coef$variable == "(Intercept)"] <- exp(tbl_coef$CI_high[tbl_coef$variable == "(Intercept)"])
+  tbl_coef$IRR[tbl_coef$variable == "cat_cohort"] <- exp(tbl_coef$Coefficient[tbl_coef$variable == "cat_cohort"])
+  tbl_coef$IRR_CI_low[tbl_coef$variable == "cat_cohort"] <- exp(tbl_coef$CI_low[tbl_coef$variable == "cat_cohort"])
+  tbl_coef$IRR_CI_high[tbl_coef$variable == "cat_cohort"] <- exp(tbl_coef$CI_high[tbl_coef$variable == "cat_cohort"])
+  
+  return(tbl_coef)
+}
 
-model_coefficients <- 
-  pmap(
-  .l = tbl_paths,
-  .f = ~read_csv(file = .y)
-) %>%
-  set_names(nm = tbl_paths$model)
+rebase_numeric_variables <- function(tbl_coef) {
+  tbl_coef %>%
+    mutate(across(
+      c(Coefficient, CI_low, CI_high),
+      ~ case_when(
+        variable == "amt_age" ~ .x * 10,
+        variable == "val_elixhauser_index_vanwalraven" ~ .x * 5,
+        variable == "amt_drive_to_hosp_mins" ~ .x * 15,
+        TRUE ~ .x
+      ))) %>%
+    mutate(across(
+      c(IRR, IRR_CI_low, IRR_CI_high),
+      ~ case_when(
+        variable == "amt_age" ~ .x^10,
+        variable == "val_elixhauser_index_vanwalraven" ~ .x^5,
+        variable == "amt_drive_to_hosp_mins" ~ .x^15,
+        TRUE ~ .x
+      ))) %>%
+    mutate(
+      variable = case_when(
+        variable == "amt_age" ~ "amt_age_10",
+        variable == "val_elixhauser_index_vanwalraven" ~ "val_elixhauser_index_vanwalraven_5",
+        variable == "amt_drive_to_hosp_mins" ~ "amt_drive_to_hosp_mins_15",
+        TRUE ~ variable
+      )
+    )
+}
 
-model_coefficients_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_rse.csv")
+# note, the 'other' models are just loaded but won't be used as-is - I filter them to use parts for other lists of models
 model_coefficients_other <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_other.csv")
+
 model_coefficients_ols <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_ols.csv")
 
+model_coefficients_poisson <-
+  bind_rows(
+    read_csv(file = "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_poisson.csv") %>% mutate(model = "hosp_poisson") %>%
+      change_reference_to_prepandemic %>%
+      rebase_numeric_variables,
+    read_csv(file = "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_los_poisson.csv") %>% mutate(model = "los_poisson") %>%
+      change_reference_to_prepandemic %>%
+      rebase_numeric_variables,
+    model_coefficients_other %>% filter(model == "discharge_poisson")
+  ) %>%
+  relocate(model)
+
+model_coefficients_negbin <-
+  bind_rows(
+    read_csv(file = "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_negbin.csv") %>% mutate(model = "hosp_negbin") %>%
+      change_reference_to_prepandemic %>%
+      rebase_numeric_variables,
+    read_csv(file = "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_negbin.csv") %>% mutate(model = "los_poisson") %>%
+      change_reference_to_prepandemic %>%
+      rebase_numeric_variables,
+    model_coefficients_other %>% filter(model == "discharge_negbin")
+  )
+
+# TODO: load the ZINB models... will need some work figuring out how to recalculate the reference level there?
+model_coefficients_zinb <- NULL
+
+model_coefficients_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_rse.csv") %>%
+  # rename so it's in line with the other outputs above
+  rename(IRR = estimate, IRR_CI_low = conf.low, IRR_CI_high = conf.high, SE = std.error, z = statistic, p = p.value) %>%
+  mutate(Coefficient = log(IRR), CI_low = log(IRR_CI_low), CI_high = log(IRR_CI_high))
+
 model_ames <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_ames.csv")
+
+## load cohort size by PoD
+cohort_by_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/outputs/cohort_size_pod.csv") %>%
+  repeat_data_adding_a_catchall_category(var_to_change = cat_place_of_death, label_for_catchall = "All") %>%
+  group_by(val_cohort_year, cat_place_of_death) %>%
+  summarise(n=sum(n), .groups = "drop")
+  # code_place_of_death_consistently
+
+## number of data with missing entries in home deaths  
+missingness_home <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_missingness.csv")
+
+## number of people with/without hospitalisations - used for reporting sample size in days between discharge and death model
+# Note: I just copied this manually from the reports, part 1 & part 2, modeling hospitalisations
+
+## univariate regression coefficients, Poisson + RSE
+univariate_regression_poisson_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_univariate_regressions_poisson_rse.csv") %>%
+  # some basic wrangling to get the format to be the same as other outputs
+  mutate(
+    variable = str_extract(term, pattern = paste0(unique(model_coefficients_rse$variable), collapse = "|")),
+    variable = if_else(term == "(Intercept)", term, variable),
+    level = str_remove(term, pattern = paste0(unique(model_coefficients_rse$variable), collapse = "|")),
+    level = if_else(term == "(Intercept)", "", level)
+    ) %>%
+  select(-term) %>%
+  relocate(variable, level)
 ```
+
+# Distribution graphs
+
+```{r}
+# TODO: load the graphs from the exploratory outputs before!
+```
+
 
 # Compare coefficients
 
-For hospitalisations, the coefficients are very similar
+Note: this is for my own sense-checking of the results, and probably way too much detail to publish.
+All the regression models aim to predict the mean outcome for each combination of covariates.
+
+Note that I'm putting the intercept on a separate facet because that's the "grand mean" of the outcome when all covariates are set to 0, so it's much larger than the coefficients/
+
+- The coefficients are very similar for all datasets between Poisson, Poisson with RSE (no surprises, just the CI is different!), and the Negative binomial models.
+- For Days in hospital, there are some differences between model types:
+  - age has the opposite effect between Poisson and Negbin models, as does Covid-19 as the cause of death; the effect of Married marstat is bigger in the negbin model than poisson, as is SINMD quintile 5, male sex, pandemic period; some effects are drastically smaller in negbin: age, circulatory CoD, Covid-19, COD, dementia CoD
+
+<!-- For hospitalisations, the coefficients are very similar between Poisson, Negative binomial, and Zero-inflated Negative Binomial models (the conditional component, rather than the zero-inflated component) -->
 
 ```{r}
-model_coefficients %>%
-  list_rbind(names_to = "model") %>% 
-  filter(str_detect(model, "hosp\\_")) %>%
-  filter(is.na(Component) | Component == "conditional") %>%
+list(
+  "poisson" = model_coefficients_poisson,
+  "poisson_rse" = model_coefficients_rse,
+  "negbin" = model_coefficients_negbin
+  ) %>%
+  list_rbind(names_to = "model_type") %>%
   mutate(
-    IRR = coalesce(IRR, exp_coef),
-    IRR_CI_low = coalesce(IRR_CI_low, exp_CI_low),
-    IRR_CI_high = coalesce(IRR_CI_high, exp_CI_high),
+    dataset = case_when(
+      str_detect(model, "hosp\\_") ~ "Hospitalisations",
+      str_detect(model, "los\\_") ~ "Days in hospital",
+      str_detect(model, "discharge\\_") ~ "Days between discharge & death",
+    )
+  ) %>%
+  # filter(str_detect(model, "hosp\\_")) %>%
+  # filter(is.na(Component) | Component == "conditional") %>%
+  mutate(
+  #   IRR = coalesce(IRR, exp_coef),
+  #   IRR_CI_low = coalesce(IRR_CI_low, exp_CI_low),
+  #   IRR_CI_high = coalesce(IRR_CI_high, exp_CI_high),
     intercept = variable=="(Intercept)"
   ) %>%
   ggplot(
-    aes(x = IRR, y = paste0(variable,": ",level), xmin = IRR_CI_low, xmax = IRR_CI_high, shape = model)
+    aes(x = IRR, y = paste0(variable,": ",level), xmin = IRR_CI_low, xmax = IRR_CI_high, shape = model_type)
   ) +
   geom_vline(xintercept = 1, linetype = "dashed", colour = "grey75") +
   geom_point(size = rel(2), position = position_dodge(width = 1)) +
   geom_linerange(position = position_dodge(width = 1)) +
-  facet_wrap(vars(intercept), scales = "free", nrow = 2) +
+  facet_wrap(vars(intercept, dataset), scales = "free", nrow = 2) +
   NULL
 ```
 
@@ -86,35 +227,165 @@ This is the main way I'm comparing between the different models since they adopt
 ## Days between discharge & death
 
 ```{r}
-
 # TODO: the CIs on the Poisson look too small, plus it looks like the RSE versions of the Poisson AMEs aren't there?!
 # TODO: check the SH to see if something went wrong when computing these?
 # TODO: maybe change HC0 to HC3, or just set it to "sandwich" or whatever the default is? I just want a HC estimator of variance, don't really care which
 
 model_ames %>%
-  filter(str_detect(model, "discharge")) %>%
+  separate_wider_regex(cols = model, patterns = c(dataset = "los|discharge|hosp", ".*", model_type = "negbin|poisson\\_rse|poisson|ols|zinb")) %>%
   ggplot(
-    aes(x = estimate, y = paste0(term,": ",contrast), shape = model, xmin = conf.low, xmax = conf.high)
+    aes(x = estimate, y = paste0(term,": ",contrast), shape = model_type, xmin = conf.low, xmax = conf.high)
   ) +
   geom_point(size = rel(2), position = position_dodge(width = 1)) +
-  geom_linerange(position = position_dodge(width = 1))
+  geom_linerange(position = position_dodge(width = 1)) +
+  facet_wrap(vars(dataset), scales = "free")
 ```
 
-# Pretty coefficient table, using Poisson + RSE
+# Pretty coefficient tables
+
+## Poisson + RSE
 
 ```{r}
-# TODO: change pandemic variable to have pre-pandemic as the reference...
 (tbl_model_coefficients_poisson_rse <-
   model_coefficients_rse %>%
   mutate(
     variable = replace_with_long_variable_name(variable),
-    p = scales::label_pvalue()(p.value),
-    ci = paste0(signif(conf.low, 3), "-", signif(conf.high, 3))
+    p_pretty = scales::label_pvalue()(p),
+    stars = gtools::stars.pval(p),
+    IRR = paste0(signif(IRR, 3), stars),
+    ci = format_ci(IRR_CI_low, IRR_CI_high),
     ) %>%
-  select(-c(statistic, std.error, conf.low, conf.high, p.value)) %>%
+  select(c(model, variable, level, IRR, ci)) %>%
   mutate(model = str_remove(model, "\\_poisson\\_rse")) %>%
-  pivot_wider(names_from = model, values_from = c(estimate, ci, p), names_vary = "slowest"))
+  pivot_wider(names_from = model, values_from = c(IRR, ci), names_vary = "slowest"))
 
-view(tbl_model_coefficients_poisson_rse, title = "IRRs")
+tbl_model_coefficients_poisson_rse %>%
+  mutate(variable = if_else(condition = duplicated(variable), true = " ", false = as.character(variable))) %>%
+  write_csv(., file = file.path(dir_output, "tbl_model_coefficients_poisson_rse.csv"))
+```
+
+
+## Negbin
+
+```{r}
+(tbl_model_coefficients_negbin <-
+  model_coefficients_negbin %>%
+  mutate(
+    variable = replace_with_long_variable_name(variable),
+    p_pretty = scales::label_pvalue()(p),
+    stars = gtools::stars.pval(p),
+    IRR = paste0(signif(IRR, 3), stars),
+    ci = format_ci(IRR_CI_low, IRR_CI_high),
+    ) %>%
+  select(c(model, variable, level, IRR, ci)) %>%
+  mutate(model = str_remove(model, "\\_poisson\\_rse")) %>%
+  pivot_wider(names_from = model, values_from = c(IRR, ci), names_vary = "slowest"))
+
+tbl_model_coefficients_negbin %>%
+  mutate(variable = if_else(condition = duplicated(variable), true = " ", false = as.character(variable))) %>%
+  write_csv(., file = file.path(dir_output, "tbl_model_coefficients_negbin.csv"))
+```
+
+# Pretty AME table
+
+## Poisson + RSE
+
+```{r}
+(tbl_ames_poisson_rse <-
+  model_ames %>%
+  filter(str_detect(model, "\\_rse")) %>%
+  mutate(
+    term = 
+      replace_with_long_variable_name(term) %>%
+      factor(., levels = unique(tbl_model_coefficients_poisson_rse$variable)),
+    p_pretty = scales::label_pvalue()(p.value),
+    stars = gtools::stars.pval(p.value),
+    stars = str_remove(stars, "\\.$"),
+    AME = paste0(signif(estimate), stars),
+    ci = format_ci(conf.low, conf.high, sep = ","),
+    ) %>%
+  select(c(model, term, contrast, AME, ci)) %>%
+  mutate(model = str_remove(model, "\\_poisson\\_rse")) %>%
+  pivot_wider(names_from = model, values_from = c(AME, ci), names_vary = "slowest") %>%
+  arrange(term))
+
+tbl_ames_poisson_rse %>%
+  mutate(term = if_else(condition = duplicated(term), true = " ", false = as.character(term))) %>%
+  write_csv(., file = file.path(dir_output, "tbl_ames_poisson_rse.csv"))
+```
+
+# Compute total sample size for models
+
+```{r}
+(sample_size_los_and_hosp <- 
+  cohort_by_pod %>%
+  filter(str_detect(cat_place_of_death, "^Home")) %>%
+  left_join(missingness_home %>% select(val_cohort_year, any_missing), join_by(val_cohort_year)) %>%
+  mutate(total_n = n - parse_number(any_missing))
+)
+
+(total_sample_los_and_hosp = sum(sample_size_los_and_hosp$total_n))
+
+(total_sample_discharge = total_sample_los_and_hosp - 37609)  # this is a bit ugly - the 37609 figure is the number of 0 hospitalisations reported in part 2 modeling hospitalisations, in the distributional checks (overdispersion)
+
+```
+
+# Univariate regression coefficients
+
+## Poisson + RSE
+
+```{r}
+# TODO: I don't think I'll construct a full table actually, go straight to the combined ones
+```
+
+# Combined univariate & adjusted regression coefficient tables, one per outcome; Poisson + RSE
+
+## Days in hospital
+
+```{r}
+# TODO: separate this out into table and writing steps
+pmap(
+  .l = tribble(
+    ~model_short, ~filename,
+    "los", "tbl_uni_and_adjusted_poisson_rse_los",
+    "hosp", "tbl_uni_and_adjusted_poisson_rse_hosp",
+    "discharge", "tbl_uni_and_adjusted_poisson_rse_discharge",
+  ),
+  .f = function(model_short, filename) {
+    tbl <- bind_rows(
+      univariate_regression_poisson_rse %>%
+      filter(str_detect(model, pattern = model_short) & variable!="(Intercept)") %>% mutate(regression = "uni") %>%
+      transmute(
+        regression, model, variable, level, 
+        IRR = paste0(signif(estimate, 3), gtools::stars.pval(p.value)) %>% str_remove(., "\\.$"),
+        ci = format_ci(conf.low, conf.high)
+      ),
+      model_coefficients_rse %>% filter(str_detect(model, pattern = model_short)) %>% mutate(regression = "adj") %>%
+      transmute(
+        regression, model, variable, level, 
+        IRR = paste0(signif(IRR, 3), gtools::stars.pval(p)) %>% str_remove(., "\\.$"),
+        ci = format_ci(IRR_CI_low, IRR_CI_high)
+      )
+    ) %>%
+    mutate(model = str_remove(model, "\\_poisson\\_rse")) %>%
+    pivot_wider(names_from = c(regression,model), values_from = c(IRR, ci), names_vary = "slowest")
+    tbl %>% mutate(variable = if_else(condition = duplicated(variable), true = " ", false = as.character(variable))) %>%
+  write_csv(., file = file.path(dir_output, paste0(filename,".csv")))
+    
+    return(tbl)
+  }
+)
+```
+
+## Hospitalisations
+
+```{r}
+univariate_regression_poisson_rse
+```
+
+## Days between discharge & death
+
+```{r}
+univariate_regression_poisson_rse
 ```
 
