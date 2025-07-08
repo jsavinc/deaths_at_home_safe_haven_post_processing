@@ -255,3 +255,16 @@ sd_pooled <- function(sd, n) {
   return(sd_pooled)
 }
 
+
+# format confidence interval range with specified signif digits -----------
+
+format_ci <- function(low, high, digits = 3, sep = "-") {
+  paste(
+    # TODO: maybe use something like sprintg("%.3f") where 3 is digits
+    signif(low, digits = digits),
+    signif(high, digits = digits),
+    # stringr::str_pad(signif(low, digits = digits), width = digits+1, side = "right", pad = "0"),
+    # stringr::str_pad(signif(high, digits = digits), width = digits+1, side = "right", pad = "0"),
+    sep = sep
+  )
+}
