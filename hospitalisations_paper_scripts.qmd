@@ -24,10 +24,52 @@ source("./FUNCTIONS.R")  # load common functions
 dir_output <- "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/hospitalisations paper/"
 ```
 
+## Functions & constants
+
+```{r}
+# specify the order of place of death
+levels_place_of_death <- c("Hospital", "Home", "Care home", "All")
+
+code_place_of_death_consistently <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      ## shorten to "Home"
+      cat_place_of_death = if_else(cat_place_of_death == "Home & non-institution", true = "Home", false = cat_place_of_death),
+      ## Shorten to "Care home"
+      cat_place_of_death = if_else(cat_place_of_death == "Care home & other", true = "Care home", false = cat_place_of_death),
+      cat_place_of_death = factor(cat_place_of_death, levels = levels_place_of_death)
+    )
+}
+
+## helper function to merge all pre-pandemic years into one
+merge_years_n <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+        fct_relevel("2015-20")
+    ) %>%
+    group_by(val_cohort_year, .add = TRUE) %>%
+    summarise(n = sum(n), .groups = "drop")
+}
+merge_years_m_sd <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+        fct_relevel("2015-20")
+    ) %>%
+    group_by(val_cohort_year, .add = TRUE) %>%
+    summarise(mean = weighted.mean(mean, n_deaths),
+              sd = sd_pooled(sd, n_deaths),
+              .groups = "drop")
+}
+```
+
 
 # Load data & wrangle
 
 This may be slow as I'm reading from the X:/ drive.
+
+## Regression data & AMEs
 
 I've exported the model coefficients in a piecemeal fashion, so I'll load them in and merge into a big table containing coefficients for all the models I've made (except for OLS models - these should go into a separate table because they don't report ORs/IRRs).
 
@@ -167,11 +209,261 @@ univariate_regression_poisson_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at ho
   relocate(variable, level)
 ```
 
+## Demographics & descriptives
+
+```{r}
+## load cohort size by PoD
+cohort_by_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/outputs/cohort_size_pod.csv") %>%
+  repeat_data_adding_a_catchall_category(var_to_change = cat_place_of_death, label_for_catchall = "All") %>%
+  group_by(val_cohort_year, cat_place_of_death) %>%
+  summarise(n=sum(n), .groups = "drop") %>%
+  code_place_of_death_consistently
+
+sex_by_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_cod_underlying_sex.csv") %>%
+  filter(cat_cod_nrs == "All causes") %>%
+  select(-cat_cod_nrs) %>%  # won't need this for now
+  pivot_annual_to_long() %>%
+  parse_n_prop(col_n_prop = n_prop) %>%
+  code_place_of_death_consistently
+
+sex_by_pod_2 <-
+  sex_by_pod %>%
+  left_join(cohort_by_pod %>% rename(denominator = n), join_by(val_cohort_year, cat_place_of_death)) %>%
+  rename(
+    n_female = n,
+    prop_female = prop
+    ) %>%
+  mutate(
+    n_male = denominator - n_female,
+    prop_male = 1 - prop_female
+    ) %>%
+  (function(x){
+    bind_rows(
+      x %>% select(1:2, n = n_female, prop = prop_female) %>% mutate(cat_sex = "female"),
+      x %>% select(1:2, n = n_male, prop = prop_male) %>% mutate(cat_sex = "male")
+    )
+  }) %>%
+  mutate(cat_sex = factor(cat_sex)) %>%
+  relocate(cat_sex, .after = val_cohort_year)
+
+age_by_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_age_cohort_pod.csv") %>%
+  code_place_of_death_consistently
+
+age_group_by_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/associations with home death, logistic regression/part 3/tbl_age_decades_by_pod.csv") %>%
+  code_place_of_death_consistently %>%
+  mutate(cat_age_decades = factor(cat_age_decades))
+
+marstat_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/marstat_by_pod.csv") %>%
+  pivot_annual_to_long() %>%
+  parse_n_prop(col_n_prop = n_prop) %>%
+  mutate(cat_marital_status_condensed = factor(cat_marital_status_condensed, levels = unique(cat_marital_status_condensed))) %>%
+  code_place_of_death_consistently
+
+ethnicity_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/ethnicity_by_pod.csv") %>%
+  pivot_annual_to_long() %>%
+  parse_n_prop(col_n_prop = n_prop) %>%
+  mutate(cat_ethnic_group_collapsed = factor(cat_ethnic_group_collapsed, levels = unique(cat_ethnic_group_collapsed))) %>%
+  code_place_of_death_consistently
+
+## rounded to nearest 10
+simd_by_pod <-
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/place_of_death_by_simd_and_cohort.csv") %>%
+  pivot_annual_to_long() %>%
+  parse_n_prop(col_n_prop = n_prop) %>%
+  ## simd is reported as proportion of each simd quintile in each PoD, e.g. all
+  ## PoDs in quintile 1 add up to 100%; so it needs rebased to proportion of
+  ## quintiles within each PoD
+  group_by(val_cohort_year, cat_place_of_death) %>%
+  mutate(prop = n/sum(n)) %>%
+  ungroup %>%
+  code_place_of_death_consistently %>%
+  mutate(cat_simd_quintile = factor(as.character(val_simd_quintile), levels = as.character(1:5)))
+
+## load urban-rural table for the different level folds
+urban_rural_reference <-
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/urban_rural_8_6_3_2_fold_table.csv") %>%
+  mutate(across(everything(), ~factor(.x, levels = unique(.x))))
+
+
+ur8_by_pod <-
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/place_of_death_by_ur_and_cohort.csv") %>%
+  pivot_annual_to_long() %>%
+  parse_n_prop(col_n_prop = n_prop) %>%
+  mutate(cat_ur8 = factor(cat_ur8, levels = unique(cat_ur8))) %>%
+  ## ur is reported as proportion of each UR level by PoD; for this paper I think I need proportion of URs across each PoD
+  group_by(val_cohort_year, cat_place_of_death) %>%
+  mutate(prop = n/sum(n)) %>%
+  ungroup %>%
+  code_place_of_death_consistently
+
+ur2_by_pod <-
+  ur8_by_pod %>%
+  left_join(urban_rural_reference, by = "cat_ur8") %>%
+  group_by(val_cohort_year, cat_place_of_death, cat_ur2) %>%
+  summarise(
+    n = sum(n),
+    prop = sum(prop),
+    .groups = "drop"
+  )
+
+## this includes both number of comorbidities & elixhauser index
+comorb_by_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_comorb_index.csv") %>%
+  pivot_annual_to_long(new_col = "mean_ci") %>%
+  parse_m_ci(col_m_ci = mean_ci) %>%
+  code_place_of_death_consistently %>%
+  left_join(
+    cohort_by_pod %>% rename(denominator = n),
+    by = c("cat_place_of_death", "val_cohort_year")
+  ) %>%
+  recalculate_sd_from_mean_ci_and_n(mean_var = m, ci_lo_var = ci_lo, n_var = denominator, new_sd_var = sd)
+
+# driving distance to nearest hospital
+driving_by_pod <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/distance_to_hospital_descriptives/distance_by_pod.csv") %>%
+  filter(distance == "minutes") %>%
+  code_place_of_death_consistently
+
+# driving distance, grouped
+driving_categorised_by_pod <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/distance_to_hospital_descriptives/freq_distance_mins_by_pod.csv") %>%
+  code_place_of_death_consistently %>%
+  mutate(cat_drive_to_hosp_mins = factor(cat_drive_to_hosp_mins, levels=unique(cat_drive_to_hosp_mins))) %>%
+  pivot_annual_to_long(new_col = "n_prop") %>%
+  parse_n_prop(n_prop)
+
+# causes of death by PoD
+cod_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_by_pod_cod_underlying (1).csv") %>%
+  code_place_of_death_consistently %>%
+  mutate(cat_cod_nrs = factor(cat_cod_nrs, levels=unique(cat_cod_nrs))) %>%
+  pivot_annual_to_long(new_col = "n_prop") %>%
+  parse_n_prop(n_prop)
+
+# total days computed for everyone, including those not admitted
+los_by_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_los_cohort_pod.csv") %>%
+  code_place_of_death_consistently() %>%
+  mutate(
+    mean_ci_lo = mean + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
+    mean_ci_hi = mean + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted),
+    ## adjust for proportion of 0s
+    mean_adjusted = mean / prop_admitted,
+    mean_adjusted_ci_lo = mean_adjusted + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
+    mean_adjusted_ci_hi = mean_adjusted + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted)
+  )
+
+hosp_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/smr01_spells_descriptives_by_pod.csv") %>%
+  code_place_of_death_consistently()
+
+# only individuals with 1+ hospitalisations included in this
+dtdt_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/dtdt_smr01_descriptives_by_pod.csv") %>%
+  code_place_of_death_consistently()
+```
+
+
 # Distribution graphs
 
 ```{r}
 # TODO: load the graphs from the exploratory outputs before!
 ```
+
+# Descriptives
+
+This will need to combine demographics and outcome variables...
+
+## Large table, combined numeric & categorical, home only
+
+```{r}
+tbl_descriptives_data_categorical <-
+  list(
+    "Age group, N (%)" = age_group_by_pod %>% rename(levels = cat_age_decades),
+    "Sex, N (%)" = sex_by_pod_2 %>% rename(levels = cat_sex),
+    "Marital status, N (%)" = marstat_by_pod %>% rename(levels = cat_marital_status_condensed),
+    "Ethnicity, N (%)" = ethnicity_by_pod %>% rename(levels = cat_ethnic_group_collapsed),
+    "Deprivation, N (%)" = simd_by_pod %>% rename(levels = cat_simd_quintile),
+    "Urban-rural classification, N (%)" = ur2_by_pod %>% rename(levels = cat_ur2),
+    "Driving distance, N (%)" = driving_categorised_by_pod %>% rename(levels = cat_drive_to_hosp_mins),
+    "Cause of death, N (%)" = cod_by_pod %>% rename(levels = cat_cod_nrs)
+  )
+
+tbl_descriptives_home_only_merged_years <-
+  map(
+    .x = tbl_descriptives_data_categorical,
+    .f = function(data_tbl) {
+      data_tbl %>%
+        group_by(cat_place_of_death, levels) %>%
+        merge_years_n() %>%
+        group_by(cat_place_of_death, val_cohort_year) %>%
+        mutate(prop = n/sum(n)) %>%
+        ungroup
+    }
+  ) %>%
+  list_rbind(names_to = "measure") %>%
+  mutate(value = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy = 0.1)(prop)})")) %>%
+  select(-c(n,prop)) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = value) %>%
+  mutate(
+    measure = factor(measure, levels = unique(measure)),
+  ) %>%
+  arrange(measure, cat_place_of_death)
+
+# TODO: delete this after gleaning what's useful
+# comorb_by_pod %>%
+#       filter(measure == "Elixhauser comorbidity index") %>%
+#       rename(n_deaths = denominator, mean = m) %>%
+#       group_by(cat_place_of_death) %>%
+#       merge_years_m_sd() %>%
+#       mutate(measure = "EI, Mean (SD)", value = glue::glue("{signif(mean,3)} ({signif(sd,3)})")) %>%
+#       select(measure, val_cohort_year, cat_place_of_death, value)
+
+
+tbl_descriptives_data_numeric <- list(
+  "Age, Mean (SD)" = age_by_pod,
+  "Multimorbidity, Mean (SD)" = comorb_by_pod %>%
+    filter(measure == "Elixhauser comorbidity index") %>%
+    rename(mean = m),
+  "Driving distance, Mean (SD)" = driving_by_pod %>%
+    rename(mean = m),
+  "Days in hospital, Mean (SD)" = los_by_pod,
+  "Number of hospitalisations, Mean (SD)" = hosp_by_pod %>%
+    rename(mean = m),
+  "Days between discharge and death, Mean (SD)" = dtdt_by_pod %>%
+    rename(mean = m)
+)
+
+tbl_descriptives_numeric_home_only_merged_years <-
+  # TODO: sort out below script
+  # tbl_descriptives_data_numeric %>%
+  # group_by(cat_place_of_death) %>% 
+  # merge_years_m_sd() %>%
+  # mutate(
+  #   measure = "Age, Mean (SD)",
+  #   value = glue::glue("{round(mean,2)} ({round(sd,2)})"),
+  #   levels = " "
+  #   ) %>%
+  # select(-c(mean,sd)) %>%
+  # pivot_wider(names_from = val_cohort_year, values_from = value)
+  map(
+    .x = tbl_descriptives_data_numeric,
+    .f = function(data_tbl) {
+      data_tbl %>%
+        group_by(cat_place_of_death, levels) %>%
+        merge_years_m_sd() %>%
+        ungroup %>%
+        mutate(value = glue::glue("{signif(mean,3)} ({signif(sd,3)})"))
+    }
+  ) %>%
+  list_rbind(names_to = "measure") %>%
+  select(-c(n,prop)) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = value) %>%
+  mutate(
+    measure = factor(measure, levels = unique(measure)),
+  ) %>%
+  arrange(measure, cat_place_of_death)
+```
+
 
 
 # Compare coefficients
@@ -340,11 +632,9 @@ tbl_ames_poisson_rse %>%
 
 # Combined univariate & adjusted regression coefficient tables, one per outcome; Poisson + RSE
 
-## Days in hospital
-
 ```{r}
 # TODO: separate this out into table and writing steps
-pmap(
+tbls_uni_and_adjusted_rse <- pmap(
   .l = tribble(
     ~model_short, ~filename,
     "los", "tbl_uni_and_adjusted_poisson_rse_los",
@@ -352,7 +642,7 @@ pmap(
     "discharge", "tbl_uni_and_adjusted_poisson_rse_discharge",
   ),
   .f = function(model_short, filename) {
-    tbl <- bind_rows(
+    bind_rows(
       univariate_regression_poisson_rse %>%
       filter(str_detect(model, pattern = model_short) & variable!="(Intercept)") %>% mutate(regression = "uni") %>%
       transmute(
@@ -365,27 +655,34 @@ pmap(
         regression, model, variable, level, 
         IRR = paste0(signif(IRR, 3), gtools::stars.pval(p)) %>% str_remove(., "\\.$"),
         ci = format_ci(IRR_CI_low, IRR_CI_high)
-      )
+      ),
+      # model_ames %>% filter(str_detect(model, pattern = "poisson\\_rse")) %>% filter(str_detect(model, pattern = model_short)) %>% mutate(regression = "ame") %>%
+      #   transmute(
+      #     regression, # TODO: make this the same shape as the regression?
+      #   )
     ) %>%
-    mutate(model = str_remove(model, "\\_poisson\\_rse")) %>%
-    pivot_wider(names_from = c(regression,model), values_from = c(IRR, ci), names_vary = "slowest")
-    tbl %>% mutate(variable = if_else(condition = duplicated(variable), true = " ", false = as.character(variable))) %>%
-  write_csv(., file = file.path(dir_output, paste0(filename,".csv")))
-    
-    return(tbl)
+    mutate(
+      level = replace_na(level, replace = ""),  # for consistency, and also to not confuse excel
+      variable = replace_with_long_variable_name(variable),
+      variable = factor(variable, levels = unique(tbl_model_coefficients_poisson_rse$variable)),
+      model = str_remove(model, "\\_poisson\\_rse")
+      ) %>%
+    pivot_wider(names_from = c(regression,model), values_from = c(IRR, ci), names_vary = "slowest") %>%
+    arrange(variable)
   }
 )
-```
 
-## Hospitalisations
-
-```{r}
-univariate_regression_poisson_rse
-```
-
-## Days between discharge & death
-
-```{r}
-univariate_regression_poisson_rse
+walk2(
+  .x = tbls_uni_and_adjusted_rse,
+  .y = c("tbl_uni_and_adjusted_poisson_rse_los","tbl_uni_and_adjusted_poisson_rse_hosp", "tbl_uni_and_adjusted_poisson_rse_discharge"),
+  .f = function(tbl, filename) {
+    tbl %>% mutate(variable = if_else(
+      condition = duplicated(variable),
+      true = " ",
+      false = as.character(variable)
+    )) %>%
+      write_csv(., file = file.path(dir_output, paste0(filename, ".csv")))
+  }
+)
 ```
 
