@@ -18,6 +18,9 @@ Here I process data from the safe haven into neat tables and graphs for the hosp
 ```{r}
 library(tidyverse)
 library(patchwork)
+library(broom)  # for tidy()
+library(tictoc)  # for timing
+library(janitor)  # for some nice cleaning functions
 
 source("./FUNCTIONS.R")  # load common functions
 
@@ -60,6 +63,7 @@ merge_years_m_sd <- function(data_tbl) {
     group_by(val_cohort_year, .add = TRUE) %>%
     summarise(mean = weighted.mean(mean, n_deaths),
               sd = sd_pooled(sd, n_deaths),
+              n_deaths = sum(n_deaths),  # retain the number of individuals in each merged category - for hypothesis testing later!
               .groups = "drop")
 }
 ```
@@ -373,7 +377,9 @@ dtdt_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exp
 
 This will need to combine demographics and outcome variables...
 
-## Large table, combined numeric & categorical, home only
+## Large table, combined numeric & categorical
+
+### Categorical variables
 
 ```{r}
 tbl_descriptives_data_categorical <-
@@ -388,7 +394,7 @@ tbl_descriptives_data_categorical <-
     "Cause of death, N (%)" = cod_by_pod %>% rename(levels = cat_cod_nrs)
   )
 
-tbl_descriptives_home_only_merged_years <-
+tbl_descriptives_categorical_merged_years <-
   map(
     .x = tbl_descriptives_data_categorical,
     .f = function(data_tbl) {
@@ -409,59 +415,125 @@ tbl_descriptives_home_only_merged_years <-
   ) %>%
   arrange(measure, cat_place_of_death)
 
-# TODO: delete this after gleaning what's useful
-# comorb_by_pod %>%
-#       filter(measure == "Elixhauser comorbidity index") %>%
-#       rename(n_deaths = denominator, mean = m) %>%
-#       group_by(cat_place_of_death) %>%
-#       merge_years_m_sd() %>%
-#       mutate(measure = "EI, Mean (SD)", value = glue::glue("{signif(mean,3)} ({signif(sd,3)})")) %>%
-#       select(measure, val_cohort_year, cat_place_of_death, value)
+# fisher's test of distributions within each PoD
+tic()
+tbl_fisher_test_categorical_descriptives <-
+  map(
+    # map over the components
+    .x = 
+      tbl_descriptives_data_categorical,
+    .f = function(data_tbl) {
+      data_tbl %>%
+        group_by(cat_place_of_death, levels) %>%
+        merge_years_n() %>%
+        mutate(levels = fct_na_value_to_level(f = levels, level = "Missing")) %>%
+        uncount(n) %>%
+        nest(.by = cat_place_of_death) %>%
+        mutate(
+          test = map(
+            .x = data,
+            .f = function(data_tbl) {
+              data_tbl %>% 
+                tabyl(., levels, val_cohort_year, show_na = TRUE) %>%
+                fisher.test(simulate.p.value = TRUE, B = 1e4) %>%
+                tidy()
+            }
+          )
+        ) %>% 
+        select(-data) %>%
+        unnest(test)
+    }
+  ) %>%
+    list_rbind(names_to = "measure") %>%
+    replace_na()
+  mutate(
+    p_stars = gtools::stars.pval(p.value),
+    p_pretty = scales::label_pvalue()(p.value)
+  )
+toc()
 
+# save categorical table
+tbl_descriptives_categorical_merged_years %>%
+  left_join(tbl_fisher_test_categorical_descriptives %>% select(measure, cat_place_of_death, p_pretty), join_by(measure, cat_place_of_death)) %>%
+  group_by(measure) %>%
+  mutate(
+    p_pretty = if_else(condition = duplicated(cat_place_of_death), true = " ", false = p_pretty)
+  ) %>%
+  ungroup(measure) %>%
+  mutate(measure = if_else(condition = duplicated(measure), true = " ", false = as.character(measure))) %>%
+  write_csv(., file = file.path(dir_output, "tbl_descriptives_categorical_merged_years.csv"))
 
+# now also save a version with Home PoD only
+tbl_descriptives_categorical_merged_years %>%
+  left_join(tbl_fisher_test_categorical_descriptives %>% select(measure, cat_place_of_death, p_pretty), join_by(measure, cat_place_of_death)) %>%
+  group_by(measure) %>%
+  mutate(
+    p_pretty = if_else(condition = duplicated(cat_place_of_death), true = " ", false = p_pretty)
+  ) %>%
+  ungroup(measure) %>%
+  filter(cat_place_of_death=="Home") %>%
+  select(-cat_place_of_death) %>%
+  mutate(measure = if_else(condition = duplicated(measure), true = " ", false = as.character(measure))) %>%
+  write_csv(., file = file.path(dir_output, "tbl_descriptives_categorical_merged_years_home_deaths_only.csv"))
+```
+
+### Numeric variables
+
+```{r}
 tbl_descriptives_data_numeric <- list(
   "Age, Mean (SD)" = age_by_pod,
   "Multimorbidity, Mean (SD)" = comorb_by_pod %>%
     filter(measure == "Elixhauser comorbidity index") %>%
-    rename(mean = m),
+    rename(mean = m, n_deaths = denominator),
   "Driving distance, Mean (SD)" = driving_by_pod %>%
-    rename(mean = m),
-  "Days in hospital, Mean (SD)" = los_by_pod,
+    rename(mean = m, n_deaths = n),
+  "Days in hospital, Mean (SD)" = los_by_pod %>% rename(n_deaths = n_admitted),
   "Number of hospitalisations, Mean (SD)" = hosp_by_pod %>%
-    rename(mean = m),
+    rename(mean = m, n_deaths = n_users),
   "Days between discharge and death, Mean (SD)" = dtdt_by_pod %>%
+    left_join(hosp_by_pod %>% select(val_cohort_year, cat_place_of_death, n_deaths = n_users), join_by(cat_place_of_death, val_cohort_year)) %>%
     rename(mean = m)
 )
 
-tbl_descriptives_numeric_home_only_merged_years <-
-  # TODO: sort out below script
-  # tbl_descriptives_data_numeric %>%
-  # group_by(cat_place_of_death) %>% 
-  # merge_years_m_sd() %>%
-  # mutate(
-  #   measure = "Age, Mean (SD)",
-  #   value = glue::glue("{round(mean,2)} ({round(sd,2)})"),
-  #   levels = " "
-  #   ) %>%
-  # select(-c(mean,sd)) %>%
-  # pivot_wider(names_from = val_cohort_year, values_from = value)
+tbl_descriptives_numeric_merged_years_with_ttest <-
   map(
     .x = tbl_descriptives_data_numeric,
     .f = function(data_tbl) {
       data_tbl %>%
-        group_by(cat_place_of_death, levels) %>%
+        group_by(cat_place_of_death) %>%
         merge_years_m_sd() %>%
-        ungroup %>%
+        mutate(
+          broom::tidy(
+          BSDA::tsum.test(
+            mean.x = mean[1], s.x = sd[1], n.x = n_deaths[1],
+            mean.y = mean[2], s.y = sd[2], n.y = n_deaths[2])
+          ),
+          p_stars = gtools::stars.pval(p.value),
+          p_pretty = scales::label_pvalue()(p.value)
+        ) %>%
         mutate(value = glue::glue("{signif(mean,3)} ({signif(sd,3)})"))
     }
   ) %>%
   list_rbind(names_to = "measure") %>%
-  select(-c(n,prop)) %>%
+  select(measure, cat_place_of_death, val_cohort_year, value, p_pretty) %>%
   pivot_wider(names_from = val_cohort_year, values_from = value) %>%
   mutate(
     measure = factor(measure, levels = unique(measure)),
   ) %>%
-  arrange(measure, cat_place_of_death)
+  arrange(measure, cat_place_of_death) %>%
+  relocate(p_pretty, .after = ncol(.))
+
+# save numeric table
+tbl_descriptives_numeric_merged_years_with_ttest %>%
+  mutate(measure = if_else(condition = duplicated(measure), true = " ", false = as.character(measure))) %>%
+  write_csv(., file = file.path(dir_output, "tbl_descriptives_numeric_merged_years_with_ttest.csv"))
+
+# now also save a version with Home PoD only
+tbl_descriptives_numeric_merged_years_with_ttest %>%
+  filter(cat_place_of_death=="Home") %>%
+  select(-cat_place_of_death) %>%
+  mutate(measure = if_else(condition = duplicated(measure), true = " ", false = as.character(measure))) %>%
+  write_csv(., file = file.path(dir_output, "tbl_descriptives_numeric_merged_years_with_ttest_home_deaths_only.csv"))
 ```
 
 
