@@ -8,6 +8,9 @@ dir_output <-
 dir_output2 <- 
   "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/descriptive paper 1/IJPDS/revision 2/"
 
+dir_output3 <- 
+  "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/descriptive paper 1/IJPDS/revision 3/"
+
 levels_place_of_death <- c("Hospital", "Home", "Care home & other", 
                            "All")
 
@@ -53,6 +56,8 @@ library(openxlsx)
 library(patchwork)  # for assembling plots
 library(ggedit)  # for editing plots after they've been defined
 library(gtsummary)  # for easy summaries & fisher's test of distributions
+library(tictoc)  # for simple timings
+library(broom)  # for tidy
 
 
 source("./FUNCTIONS.R")  # load common functions
@@ -1667,6 +1672,58 @@ save_plot(
   filename = "fig_demographics"
 )
 
+
+# ...also save these breakdowns as a table --------------------------------
+
+# fisher's test of distributions within each PoD
+tic()
+tbl_fisher_test_figure_1_table <-
+  map(
+    # map over the components
+    .x = 
+      data_for_revised_plots,
+    .f = function(data_tbl) {
+      data_tbl %>%
+        group_by(cat_place_of_death, levels) %>%
+        merge_years_n() %>%
+        mutate(levels = fct_na_value_to_level(f = levels, level = "Missing")) %>%
+        uncount(n) %>%
+        nest(.by = cat_place_of_death) %>%
+        mutate(
+          test = map(
+            .x = data,
+            .f = function(data_tbl) {
+              data_tbl %>% 
+                janitor::tabyl(., levels, val_cohort_year, show_na = TRUE) %>%
+                janitor::fisher.test(simulate.p.value = TRUE, B = 1e4) %>%
+                broom::tidy()
+            }
+          )
+        ) %>% 
+        select(-data) %>%
+        unnest(test)
+    }
+  ) %>%
+  list_rbind(names_to = "measure") %>%
+  # replace_na() %>%
+  mutate(
+    p_stars = gtools::stars.pval(p.value),
+    p_pretty = scales::label_pvalue()(p.value)
+  )
+toc()
+
+tbl_fisher_test_figure_1_table %>%
+  write_csv(file = paste0(dir_output3, "demographics_home_vs_institution_fisher_test.csv"))
+
+data_for_revised_plots %>%
+  list_rbind(names_to="variable") %>%
+  mutate(n_prop = calculate_n_prop(n, prop)) %>%
+  select(-c(n,prop)) %>%
+  pivot_wider(names_from = c(val_cohort_year, cat_place_of_death), values_from = n_prop, names_vary = "slowest") %>%
+  replace_na(list(levels = factor("Missing"))) %>%
+  mutate(across(3:6, ~replace_na(.x, " "))) %>%
+  mutate(variable = if_else(condition = duplicated(variable), true = " ", false = as.character(variable))) %>%
+  write_csv(file = paste0(dir_output3, "demographics_home_vs_institution.csv"))
 
 
 # palliative care needs by pod --------------------------------------------
