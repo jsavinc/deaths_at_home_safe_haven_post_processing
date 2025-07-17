@@ -445,11 +445,11 @@ tbl_fisher_test_categorical_descriptives <-
     }
   ) %>%
     list_rbind(names_to = "measure") %>%
-    replace_na()
-  mutate(
-    p_stars = gtools::stars.pval(p.value),
-    p_pretty = scales::label_pvalue()(p.value)
-  )
+    # replace_na() %>%  # TODO: what was I doing here?
+    mutate(
+      p_stars = gtools::stars.pval(p.value),
+      p_pretty = scales::label_pvalue()(p.value)
+    )
 toc()
 
 # save categorical table
