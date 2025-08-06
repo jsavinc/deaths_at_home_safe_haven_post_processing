@@ -21,6 +21,8 @@ library(patchwork)
 library(broom)  # for tidy()
 library(tictoc)  # for timing
 library(janitor)  # for some nice cleaning functions
+# library(flowchart)  # for plotting a flowchart; not usable for me - it's good if you have raw data!
+library(ggflowchart)  # for plotting a flowchart
 
 source("./FUNCTIONS.R")  # load common functions
 
@@ -349,15 +351,18 @@ cod_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_expo
 los_by_pod <- 
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_los_cohort_pod.csv") %>%
   code_place_of_death_consistently() %>%
+  left_join(cohort_by_pod %>% rename(denominator = n), join_by(cat_place_of_death, val_cohort_year)) %>%
   mutate(
     mean_ci_lo = mean + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
     mean_ci_hi = mean + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted),
     ## adjust for proportion of 0s
-    mean_adjusted = mean / prop_admitted,
-    mean_adjusted_ci_lo = mean_adjusted + qt(p = 0.025, df = n_admitted - 1) * sd /sqrt(n_admitted),
-    mean_adjusted_ci_hi = mean_adjusted + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted)
+    mean_adjusted = mean * denominator / n_admitted,
+      sd_adjusted = sd * sqrt(denominator / n_admitted),
+      mean_adjusted_ci_lo = mean_adjusted + qt(p = 0.025, df = n_admitted - 1) * sd_adjusted/sqrt(n_admitted),
+      mean_adjusted_ci_hi = mean_adjusted + qt(p = 0.975, df = n_admitted - 1) * sd_adjusted/sqrt(n_admitted)
   )
 
+# this is already reported with denominator including those with 0 hospitalisations
 hosp_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/smr01_spells_descriptives_by_pod.csv") %>%
   code_place_of_death_consistently()
 
@@ -365,6 +370,20 @@ hosp_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exp
 dtdt_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/dtdt_smr01_descriptives_by_pod.csv") %>%
   code_place_of_death_consistently()
 ```
+
+## Missingness data
+
+```{r}
+missingness_overall <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_missingness.csv") %>% select(val_cohort_year, any_missing) %>% parse_n_prop(col_n_prop = any_missing)
+
+## individuals with no hospitalisations
+no_hospitalisations <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_by_pod_cod_underlying_individuals_without_hosp.csv") %>%
+  filter(cat_cod_nrs == "All causes") %>%
+  pivot_annual_to_long() %>%
+  parse_n_prop(col_n_prop = n_prop) %>%
+  code_place_of_death_consistently
+```
+
 
 
 # Distribution graphs
@@ -536,6 +555,112 @@ tbl_descriptives_numeric_merged_years_with_ttest %>%
   write_csv(., file = file.path(dir_output, "tbl_descriptives_numeric_merged_years_with_ttest_home_deaths_only.csv"))
 ```
 
+## Outcomes by year & place of death
+
+This is for the supplementary file as it's for context to the home decedents' data.
+
+```{r}
+tbl_descriptives_outcomes_by_year_pod_for_tbl <-
+  bind_rows(
+    los_by_pod %>%
+      transmute(outcome = "Days in hospital", cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(mean,3)} ({signif(sd,3)})")),
+    hosp_by_pod %>%
+  transmute(outcome = "Number of hospitalisations", cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(m,3)} ({signif(sd,3)})")),
+    dtdt_by_pod %>%
+  transmute(outcome = "Days between final discharge & death", cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(m,3)} ({signif(sd,3)})"))
+  ) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = m_sd)
+
+write_csv(tbl_descriptives_outcomes_by_year_pod_for_tbl, file =  file.path(dir_output, "tbl_descriptives_outcomes_by_year_and_pod.csv"))
+```
+
+## Figure: outcomes over time
+
+```{r}
+tbl_descriptives_outcomes_by_year_pod <-
+  bind_rows(
+    los_by_pod %>% select(cat_place_of_death, val_cohort_year, mean, sd, mean_ci_lo, mean_ci_hi) %>% mutate(outcome = "Days in hospital"),
+    hosp_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "Number of\n hospitalisations"),
+    dtdt_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "Days between\n final discharge and death")
+  ) %>%
+  mutate(outcome = factor(outcome, levels = unique(outcome)))
+
+(fig_outcomes_by_year_pod <-
+  ggplot(
+      tbl_descriptives_outcomes_by_year_pod,
+      aes(
+        x = val_cohort_year,
+        y = mean,
+        shape = cat_place_of_death,
+        group = cat_place_of_death,
+        colour = cat_place_of_death
+      )
+    ) +
+    facet_wrap(vars(outcome), scales = "free") +
+    geom_point(size = rel(3)) +
+    geom_line() +
+    scale_colour_viridis_d(option = "D") +
+    scale_y_continuous(limits = c(0,NA), breaks = scales::breaks_pretty(n=6)) +
+    labs(x = NULL, y = NULL))
+
+ggsave(fig_outcomes_by_year_pod, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
+```
+
+
+# Number of individuals removed for missingness in models / STROBE diagram
+
+```{r}
+strobe_diagram <- tribble(
+  ~name, ~entry, ~n,
+  "1", "All individuals extracted", cohort_by_pod %>% filter(cat_place_of_death == "All") %>% pull(n) %>% sum,
+  "2", "Home decedents", cohort_by_pod %>% filter(cat_place_of_death == "Home") %>% pull(n) %>% sum,
+  "3", "Excluded: institutional decedents", cohort_by_pod %>% filter(!cat_place_of_death %in% c("Home","All")) %>% pull(n) %>% sum,
+  "4", "Home decedents in model", 97948,
+  "5", "Excluded: missing covariates", missingness_overall %>% pull(n) %>% sum,
+  "6b", "Excluded: Home decedents without hospitalisations", no_hospitalisations %>% filter(cat_place_of_death=="Home") %>% pull(n) %>% sum,
+  "6", "Home decedents with at least one hospitalisation", hosp_by_pod %>% filter(cat_place_of_death=="Home") %>% pull(n_users) %>% sum,
+  "7","Home decedents with at least one hospitalisation in model", 60339,
+  "8", "Excluded: missing covariates", (hosp_by_pod %>% filter(cat_place_of_death=="Home") %>% pull(n_users) %>% sum) - 60339,
+)
+
+# (fig_patient_flow <- ggflowchart(
+#   data = tibble(from = as.character(c(1,1,2,2,2,6,6)), to = as.character(c(3,2,4,5,6,7,8))),
+#   node_data = strobe_diagram %>% mutate(label = paste0(entry,"\n",scales::label_comma()(n)))
+# ))
+```
+
+Below is a chunk of mermaid code to specify the flowchart; I ended up just designing it on mermaidchart.com and exported a png file from there.
+
+```{mermaid, eval=FALSE}
+---
+config:
+  theme: neo
+  look: classic
+  layout: dagre
+---
+flowchart TD
+    A["All decedents, 
+    N=351,145"] -- "Excluded:
+    institutional decedents, 
+    N=252,670" --> B["Home decedents, 
+    N=98,475"]
+    B -- "Excluded:
+    missing covariates,
+    N=527" --> C["**Models:
+    days in hospital &
+    number of 
+    hospitalisations, 
+    N=97,948**"]
+    B -- "Excluded:
+    no hospitalisations,
+    N=37,937" --> D["Hospitalised, 
+    N=60,538"]
+    D -- "Excluded:
+    missing covariates,
+    N=199" --> E["**Model: days between
+    final discharge & death,
+    N=60,339**"]
+```
 
 
 # Compare coefficients
