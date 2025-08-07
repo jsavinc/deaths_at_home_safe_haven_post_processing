@@ -213,6 +213,18 @@ univariate_regression_poisson_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at ho
     ) %>%
   select(-term) %>%
   relocate(variable, level)
+
+## univariate regression coefficients, negative binomial
+univariate_regression_negbin <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_univariate_regressions_negbin.csv") %>%
+  # some basic wrangling to get the format to be the same as other outputs
+  mutate(
+    variable = str_extract(term, pattern = paste0(unique(model_coefficients_rse$variable), collapse = "|")),
+    variable = if_else(term == "(Intercept)", term, variable),
+    level = str_remove(term, pattern = paste0(unique(model_coefficients_rse$variable), collapse = "|")),
+    level = if_else(term == "(Intercept)", "", level)
+    ) %>%
+  select(-term) %>%
+  relocate(variable, level)
 ```
 
 ## Demographics & descriptives
@@ -824,7 +836,29 @@ tbl_ames_poisson_rse %>%
 ## Poisson + RSE
 
 ```{r}
-# TODO: I don't think I'll construct a full table actually, go straight to the combined ones
+tbl_univariate_poisson_rse <-
+  univariate_regression_poisson_rse %>%
+    filter(str_detect(model, pattern = "los|hosp|discharge") & variable!="(Intercept)") %>%
+  mutate(
+    variable = replace_with_long_variable_name(variable),
+    p_pretty = scales::label_pvalue()(p.value),
+    stars = gtools::stars.pval(p.value),
+    IRR = paste0(signif(estimate, 3), stars),
+    ci = format_ci(conf.low, conf.high, sep = ","),
+    model = str_extract(model, "los|hosp|discharge"),
+    level = if_else(level=="", " ", level)
+    ) %>%
+  select(model, variable, level, IRR, ci) %>%
+  pivot_wider(names_from = model, values_from = c(IRR, ci), names_vary = "slowest") %>%
+  # keep only first occurence of variable, replace with blanks further down
+  mutate(variable = if_else(
+      condition = duplicated(variable),
+      true = " ",
+      false = as.character(variable)
+    ))
+
+tbl_univariate_poisson_rse %>%
+  write_csv(., file = file.path(dir_output, "tbl_univariate_coefs_rse.csv"))
 ```
 
 # Combined univariate & adjusted regression coefficient tables, one per outcome; Poisson + RSE
@@ -873,7 +907,7 @@ walk2(
   .x = tbls_uni_and_adjusted_rse,
   .y = c("tbl_uni_and_adjusted_poisson_rse_los","tbl_uni_and_adjusted_poisson_rse_hosp", "tbl_uni_and_adjusted_poisson_rse_discharge"),
   .f = function(tbl, filename) {
-    tbl %>% mutate(variable = if_else(
+    tbl %>% mutate(variable = if_else(  # keep only 1st occurence of variable, replace with blanks
       condition = duplicated(variable),
       true = " ",
       false = as.character(variable)
@@ -881,5 +915,76 @@ walk2(
       write_csv(., file = file.path(dir_output, paste0(filename, ".csv")))
   }
 )
+```
+
+# Sensitivity checks: negative binomial model regression
+
+For this, I'll report univariate, adjusted, and AME in one table for all three models
+
+```{r}
+tbl_negbin_combined <-
+  bind_rows(
+    # univariate
+    univariate_regression_poisson_rse %>%
+      filter(str_detect(model, pattern = "los|hosp|discharge") & variable!="(Intercept)") %>%
+    mutate(
+      measure = factor("uni", levels = c("uni","adj","ame")),
+      variable = replace_with_long_variable_name(variable),
+      p_pretty = scales::label_pvalue()(p.value),
+      stars = gtools::stars.pval(p.value),
+      estimate = paste0(signif(estimate, 3), stars),
+      ci = format_ci(conf.low, conf.high, sep = ","),
+      model = str_extract(model, "los|hosp|discharge"),
+      level = if_else(level %in% c("", NA), " ", level)
+      ) %>%
+      select(measure, model, variable, level, estimate, ci),
+    # adjusted
+    model_coefficients_negbin %>%
+      mutate(
+        measure = factor("adj", levels = c("uni","adj","ame")),
+        variable = replace_with_long_variable_name(variable),
+        p_pretty = scales::label_pvalue()(p),
+        stars = gtools::stars.pval(p),
+        estimate = paste0(signif(IRR, 3), stars),
+        ci = format_ci(IRR_CI_low, IRR_CI_high, sep = ","),
+        model = str_extract(model, "los|hosp|discharge"),
+        level = if_else(level %in% c("", NA), " ", level)
+      ) %>%
+      select(measure, model, variable, level, estimate, ci),
+    # AME
+    model_ames %>%
+      filter(str_detect(model, "negbin")) %>%
+      mutate(
+        measure = factor("ame", levels = c("uni","adj","ame")),
+        variable = replace_with_long_variable_name(term),
+        # a slightly ugly way of finding the same levels
+        level = approx_match_by_first_word(contrast, unique(model_coefficients_negbin$level)),
+        p_pretty = scales::label_pvalue()(p.value),
+        stars = gtools::stars.pval(p.value),
+        estimate = paste0(signif(estimate, 3), stars),
+        ci = format_ci(conf.low, conf.high, sep = ","),
+        model = str_extract(model, "los|hosp|discharge"),
+        level = if_else(level %in% c("", NA), " ", level)
+      ) %>%
+      select(measure, model, variable, level, estimate, ci)
+  ) %>%
+  mutate(
+    model = factor(model, levels = c("los","hosp","discharge")),
+    variable = factor(variable, levels = unique(tbl_model_coefficients_poisson_rse$variable))) %>%
+  arrange(model, measure, variable)
+
+tbl_negbin_combined %>%
+  # pivot on measure, so columns are univariate, adjusted, and AME, and rows are the three outcomes
+  pivot_wider(names_from = measure, values_from = c(estimate, ci), names_vary = "slowest") %>%
+  arrange(model, variable) %>%
+  # keep only first occurence of variable, replace with blanks further down
+  group_by(model) %>%
+  mutate(variable = if_else(
+      condition = duplicated(variable),
+      true = " ",
+      false = as.character(variable)
+    )) %>%
+  ungroup %>%
+  write_csv(., file = file.path(dir_output, "tbl_negbin_uni_adj_ame_sensitivity_check.csv"))
 ```
 
