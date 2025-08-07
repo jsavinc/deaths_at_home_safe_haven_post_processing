@@ -268,3 +268,17 @@ format_ci <- function(low, high, digits = 3, sep = "-") {
     sep = sep
   )
 }
+
+
+# approximately match one character vector to another, matching on --------
+
+approx_match_by_first_word <- function(x, table, case_sensitive = FALSE, ...) {
+  if (case_sensitive) {
+    x2 <- tolower(x)
+    table2 <- tolower(table)
+  } else {
+    x2 <- x
+    table2 <- table
+  }
+  table[stringdist::amatch(word(x2), table = word(table2), ...)]
+}
