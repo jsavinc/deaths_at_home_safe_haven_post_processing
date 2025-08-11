@@ -615,7 +615,11 @@ tbl_descriptives_outcomes_by_year_pod <-
     scale_y_continuous(limits = c(0,NA), breaks = scales::breaks_pretty(n=6)) +
     labs(x = NULL, y = NULL))
 
+# png
 ggsave(fig_outcomes_by_year_pod, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
+
+# eps
+ggsave(fig_outcomes_by_year_pod, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod.eps"), bg = "white", units = "cm", width = 15, height = 10)
 ```
 
 
