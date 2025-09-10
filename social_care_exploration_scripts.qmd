@@ -1,0 +1,353 @@
+---
+title: "Social care exploration scripts"
+author: "Jan Savinc"
+format: html
+editor: source
+editor_options: 
+  chunk_output_type: console
+---
+
+# Preliminaries
+
+## Packages
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(broom)  # for tidy()
+library(tictoc)  # for timing
+library(janitor)  # for some nice cleaning functions
+
+source("./FUNCTIONS.R")  # load utility functions
+```
+
+## Functions & constants
+
+```{r}
+# where to save outputs
+dir_output <- "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/ADR UK 2025/"
+
+# specify the order of place of death
+levels_place_of_death <- c("Hospital", "Home", "Care home", "All")
+
+code_place_of_death_consistently <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      ## shorten to "Home"
+      cat_place_of_death = if_else(cat_place_of_death == "Home & non-institution", true = "Home", false = cat_place_of_death),
+      ## Shorten to "Care home"
+      cat_place_of_death = if_else(cat_place_of_death == "Care home & other", true = "Care home", false = cat_place_of_death),
+      cat_place_of_death = factor(cat_place_of_death, levels = levels_place_of_death)
+    )
+}
+```
+
+## Load data
+
+```{r}
+## load cohort size by PoD
+cohort_by_pod <- 
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/outputs/cohort_size_pod.csv") %>%
+  repeat_data_adding_a_catchall_category(var_to_change = cat_place_of_death, label_for_catchall = "All") %>%
+  group_by(val_cohort_year, cat_place_of_death) %>%
+  summarise(n=sum(n), .groups = "drop")
+
+crosstab_record_type <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_exploration/crosstab_individuals_by_type_of_source_record.csv")  # rounded to nearest 10!
+
+crosstab_by_year <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_exploration/crosstab_records_individuals_source_files_by_financial_year_quarter.csv")
+
+tbl_proportion_any_soc_care_record <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_exploration/tbl_count_prop_pod_year_any_source_record.csv") %>%   # rounded to nearest 10
+  code_place_of_death_consistently
+  
+tbl_proportion_home_care_record <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_exploration/tbl_count_prop_pod_year_home_care_record.csv") %>%
+  code_place_of_death_consistently
+
+tbl_proportion_client_characteristics <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_exploration/tbl_proportions_decedents_client_characteristics.csv") %>%
+  code_place_of_death_consistently
+
+descriptives_number_home_care_records <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_exploration/freq_home_care_records_decedents.csv") %>%
+  code_place_of_death_consistently
+
+descriptives_mean_number_home_care_records <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_exploration/descriptives_home_care_records_decedents.csv")
+
+descriptives_mean_duration_home_care_records <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_exploration/descriptives_duration_home_care_records_decedents.csv") %>%
+  code_place_of_death_consistently
+```
+
+# Outputs
+
+## Numbers of records, total
+
+Note 2025-09-01: this table is correct in reporting the number of unique individuals for the entire dataset; the below table of records over time gives the potentially misleading impression that there are more records over time, but some of those will be repeated for the same individuals.
+
+```{r}
+tbl_number_of_records <-
+  crosstab_record_type %>%
+  summarise(
+    num_client = sum(n[bin_client]),
+    num_demographics = sum(n[bin_demographics]),
+    num_homecare = sum(n[bin_homecare]),
+    num_iorn = sum(n[bin_iorn])
+  )
+```
+
+## Numbers of records, over time
+
+Note that because this counts unique individuals by financial quarter, it may appear to overcount the number of individuals in the study.
+
+The 2017-18 discrepancy between the number of individuals/records in the client file vs demographics/homecare is likely an issue with data collection at the very start of SOURCE data collection;
+The gradual decline in the number of records from 2019-20 to 2020-21 is due to people in the cohort dying as the cohort was defined based on death date with a cut-off at 2021-03-22.
+In other words, the figure in 2019-4, for example, is a mix of people who died in 2019-4, or in the next 4 quarters; in 2020-21, the figure only captures individuals who would die in the next 3 quarters, and so on.
+
+```{r}
+(fig_records_over_time <-
+  crosstab_by_year %>%
+  filter(dt_financial_year!="all") %>%
+  mutate(across(c(dt_financial_year, dt_financial_quarter), as.integer)) %>%
+  pivot_longer(cols = -c(dt_financial_year, dt_financial_quarter), names_to = c("measure", "dataset"), names_pattern = "(n\\_records|n\\_individuals)\\_(client|demographics|homecare|iorn)", values_to = "n") %>%
+  mutate(
+    dt_str = str_c(dt_financial_year, dt_financial_quarter, sep = "-"),
+    measure = if_else(measure=="n_records", "Records", "Individuals")
+    ) %>%
+  ggplot(
+    aes(x=dt_str, y=n, colour=dataset, shape=dataset)
+  ) +
+    facet_grid(vars(measure)) +
+    geom_point(size = rel(2)) +
+    geom_line(aes(group = dataset)) +
+    scale_colour_viridis_d(end = 0.8) +
+   scale_y_continuous(labels = scales::label_comma()) +
+   theme(legend.position = "top") +
+   labs(
+     x = NULL, y = NULL
+   )
+ )
+```
+
+## Number of individuals over time
+
+```{r}
+(fig_individuals_over_time <-
+  crosstab_by_year %>%
+  filter(dt_financial_year!="all") %>%
+  mutate(across(c(dt_financial_year, dt_financial_quarter), as.integer)) %>%
+  pivot_longer(cols = -c(dt_financial_year, dt_financial_quarter), names_to = c("measure", "dataset"), names_pattern = "(n\\_records|n\\_individuals)\\_(client|demographics|homecare|iorn)", values_to = "n") %>%
+  mutate(
+    dt_str = str_c(dt_financial_year, dt_financial_quarter, sep = "-"),
+    measure = if_else(measure=="n_records", "Records", "Individuals")
+    ) %>%
+   filter(measure == "Individuals") %>%
+  ggplot(
+    aes(x=dt_str, y=n, colour=dataset, shape=dataset)
+  ) +
+    geom_point(size = rel(2)) +
+    geom_line(aes(group = dataset)) +
+    scale_colour_viridis_d(end = 0.8) +
+   scale_y_continuous(labels = scales::label_comma()) +
+   theme(legend.position = "top") +
+   labs(
+     x = NULL, y = NULL
+   )
+ )
+
+ggsave(fig_individuals_over_time, filename = str_c(dir_output, "/fig_individuals_over_time_by_dataset.png"), bg = "white", dpi = 300, width = 7, height = 4)
+```
+
+
+## Proportion of people with home care records, by time
+
+```{r}
+fig_num_homecare <-
+  tbl_proportion_home_care_record %>%
+  filter(cat_place_of_death=="All") %>%
+  ggplot(aes(x = val_cohort_year, y = n)) +
+  geom_point(size = rel(2)) +
+  geom_line(aes(group=cat_place_of_death)) +
+  scale_y_continuous(label = scales::label_comma(), breaks = scales::breaks_pretty(n=5), limits = c(0,NA)) +
+  labs(y = NULL, x = NULL, title = "Number of home care clients") +
+  NULL
+
+fig_prop_homecare <-
+  tbl_proportion_home_care_record %>%
+  filter(cat_place_of_death=="All") %>%
+  ggplot(aes(x = val_cohort_year, y = prop)) +
+  geom_point(size = rel(2)) +
+  geom_line(aes(group=cat_place_of_death)) +
+  scale_y_continuous(label = scales::label_percent(), breaks = scales::breaks_pretty(n=5), limits = c(0,NA)) +
+  labs(y = NULL, x = NULL, title = "Percent of home care clients") +
+  NULL
+
+fig_homecare <-
+  wrap_plots(
+    fig_num_homecare, fig_prop_homecare,
+    guides = "collect"
+  )
+
+ggsave(fig_homecare, filename = str_c(dir_output,"/fig_homecare.png"), bg = "white", dpi = 300, width = 7, height = 4)
+```
+
+
+## Proportion of people with home care records, by PoD & time
+
+```{r}
+annotations_homecare_by_pod <-
+  tbl_proportion_home_care_record %>%
+  filter(cat_place_of_death!="All") %>%
+  filter(val_cohort_year == "2018-19") %>%
+  mutate(y = if_else(cat_place_of_death == "Home", n+700, n-700))
+
+fig_prop_homecare_by_pod <-
+  tbl_proportion_home_care_record %>%
+  filter(cat_place_of_death!="All") %>%
+  ggplot(aes(x = val_cohort_year, y = prop, colour = cat_place_of_death, shape = cat_place_of_death)) +
+  geom_point(size = rel(2)) +
+  geom_line(aes(group = cat_place_of_death)) +
+  scale_y_continuous(label = scales::label_percent(), limits = c(0, NA), breaks = scales::breaks_pretty(n=5)) +
+  labs(y = NULL, x = NULL, title = "Percent of home care clients", subtitle = "Amongst all decedents") +
+  scale_colour_viridis_d(end = 0.8) +
+  NULL
+
+fig_num_homecare_by_pod <-
+  tbl_proportion_home_care_record %>%
+  filter(cat_place_of_death!="All") %>%
+  ggplot(aes(x = val_cohort_year, y = n, colour = cat_place_of_death, shape = cat_place_of_death)) +
+  geom_point(size = rel(2)) +
+  geom_line(aes(group = cat_place_of_death)) +
+  scale_y_continuous(label = scales::label_comma(), breaks = scales::breaks_pretty(n=5), limits = c(0, NA)) +
+  geom_text(
+    data = annotations_homecare_by_pod,
+    aes(x=val_cohort_year,y=y,label=cat_place_of_death,colour=cat_place_of_death), hjust = 0, angle = 15
+  ) +
+  labs(y = NULL, x = NULL, title = "Number of home care clients") +
+  scale_colour_viridis_d(end = 0.8) +
+  NULL
+
+fig_homecare_by_pod <-
+  wrap_plots(
+    fig_num_homecare_by_pod, fig_prop_homecare_by_pod, guides = "collect"
+  ) & theme(legend.position = "none")
+
+ggsave(fig_homecare_by_pod, filename = str_c(dir_output,"/fig_homecare_by_pod.png"), bg = "white", dpi = 300, width = 7, height = 4)
+```
+
+
+## Proportion of place of death, by home care
+
+```{r}
+## compute proportion of PoD by whether people received home care or not
+tbl_proportion_pod_by_homecare <-
+  tbl_proportion_home_care_record %>%
+  filter(cat_place_of_death!="All") %>%  # doesn't make sense to have All as place of death when computing distribution!
+  mutate(n_no_homecare = denominator - n) %>%
+  rename(true = n, false = n_no_homecare) %>%
+  # select(-c(prop, denominator)) %>%
+  pivot_longer(cols = c(true, false), names_to = "bin_received_homecare", values_to = "n", names_transform = as.logical) %>%
+  group_by(val_cohort_year, bin_received_homecare) %>%
+  mutate(denominator = sum(n), prop = n/denominator) %>%
+  ungroup
+
+annotations_pod_by_homecare <-
+  tbl_proportion_pod_by_homecare %>%
+  # filter(val_cohort_year=="2018-19") %>%
+  mutate(
+    y = case_when(
+      # complicated-looking logic to put text in right place relative to points & lines
+      (cat_place_of_death == "Hospital" & bin_received_homecare) | (cat_place_of_death != "Hospital" & !bin_received_homecare) ~ prop + 0.05,
+      (cat_place_of_death == "Hospital" & !bin_received_homecare) | (cat_place_of_death != "Hospital" & bin_received_homecare) ~ prop - 0.05,
+      TRUE ~ NA_real_
+    ),
+    label = case_when(
+      cat_place_of_death == "Hospital" & bin_received_homecare & val_cohort_year=="2018-19" ~ "Home care",
+      cat_place_of_death == "Hospital" & !bin_received_homecare & val_cohort_year=="2018-19" ~ "No home care",
+      val_cohort_year!="2018-19" ~ scales::label_percent(accuracy=1)(prop),
+      TRUE ~ ""
+    ),
+  )
+
+(fig_proportion_pod_by_homecare <-
+  tbl_proportion_pod_by_homecare %>%
+  ggplot(data = ., aes(x = val_cohort_year, y = prop, group = bin_received_homecare, colour = bin_received_homecare, shape = bin_received_homecare)) +
+    geom_point(size=rel(2)) +
+    geom_line() +
+    facet_wrap(vars(cat_place_of_death)) +
+    scale_y_continuous(label = scales::label_percent(), limits = c(0, NA), breaks = scales::breaks_pretty(n=5)) +
+    geom_text(data = annotations_pod_by_homecare, aes(x=val_cohort_year,y=y,label=label,colour=bin_received_homecare), hjust = 0, angle = -17) +
+    labs(y = NULL, x = NULL) +
+    theme(legend.position = "none") +
+    NULL
+)
+
+ggsave(
+  fig_proportion_pod_by_homecare, bg = "white", dpi = 300, filename = str_c(dir_output, "/fig_pod_by_homecare_receipt.png"), width = 7, height = 4
+)
+```
+
+## Client characteristics over time
+
+```{r}
+fig_client_characteristics <-
+  tbl_proportion_client_characteristics %>%
+  select(1:2, matches("prop$")) %>%
+  pivot_longer(cols = matches("bin\\_"), names_to = "characteristic", values_to = "prop") %>%
+  mutate(
+    characteristic = case_when(
+      str_detect(characteristic, "pall") ~ "Received palliative care",
+      str_detect(characteristic, "alone") ~ "Lived alone",
+      str_detect(characteristic, "unpaid") ~ "Received unpaid care",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  ggplot(aes(x = val_cohort_year, y = prop, colour = characteristic, shape = characteristic)) +
+  facet_wrap(vars(cat_place_of_death), nrow = 1) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 0.1), limits = c(0,0.1), breaks = scales::breaks_pretty(n=6)) +
+  geom_point(size=rel(2)) +
+  geom_line(aes(group = characteristic)) +
+  labs(y = NULL, x = NULL, title = "Client characteristics") +
+  scale_colour_viridis_d(end = 0.8) +
+  NULL
+
+ggsave(fig_client_characteristics, filename=str_c(dir_output,"/fig_client_characteristics.png"), bg="white", dpi = 300, width = 11, height = 5)
+```
+
+### Client characteristics for all of Scotland
+
+```{r}
+data_client_characteristics <-
+  tbl_proportion_client_characteristics %>%
+  select(1:2, matches("prop$")) %>%
+  pivot_longer(cols = matches("bin\\_"), names_to = "characteristic", values_to = "prop") %>%
+  mutate(
+    characteristic = case_when(
+      str_detect(characteristic, "pall") ~ "Received palliative care",
+      str_detect(characteristic, "alone") ~ "Lived alone",
+      str_detect(characteristic, "unpaid") ~ "Received unpaid care",
+      TRUE ~ NA_character_
+    )
+  )
+
+annotations_client_characteristics_scotland <-
+  data_client_characteristics %>%
+  filter(val_cohort_year == "2018-19" & cat_place_of_death == "All") %>%
+  mutate(
+    # y = if_else(characteristic == "Received palliative care", prop+0.005, prop+0.007),
+    y = prop+0.007,
+    angle = if_else(characteristic == "Received palliative care", -5, 10)
+  )
+  
+(fig_client_characteristics_scotland <-
+  data_client_characteristics %>%
+  filter(cat_place_of_death=="All") %>%
+  ggplot(aes(x = val_cohort_year, y = prop, colour = characteristic, shape = characteristic)) +
+  # scale_y_continuous(labels = scales::label_percent(accuracy = 0.1), limits = c(0,0.1), breaks = scales::breaks_pretty(n=6)) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1), limits = c(NA,0.1), breaks = scales::breaks_pretty(n=6)) +
+  geom_point(size=rel(2)) +
+  geom_line(aes(group = characteristic)) +
+  geom_text(data = annotations_client_characteristics_scotland, aes(x=val_cohort_year, y=y, label=characteristic, angle = angle), hjust = 0) +
+  labs(y = NULL, x = NULL, title = "Client characteristics") +
+  scale_colour_viridis_d(end = 0.8) +
+  theme(legend.position = "none") +
+  NULL)
+
+ggsave(fig_client_characteristics_scotland, filename=str_c(dir_output,"/fig_client_characteristics_scotland.png"), bg="white", dpi = 300, width = 7, height = 4)
+```
+
