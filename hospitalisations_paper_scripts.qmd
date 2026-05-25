@@ -447,6 +447,8 @@ tbl_descriptives_categorical_merged_years <-
   arrange(measure, cat_place_of_death)
 
 # fisher's test of distributions within each PoD
+# this generates N=1e4 simulations per test, so the numeric values may differ between runs - we set a seed first to ensure same results
+set.seed(42)
 tic()
 tbl_fisher_test_categorical_descriptives <-
   map(
@@ -536,6 +538,8 @@ tbl_descriptives_numeric_merged_years_with_ttest <-
         mutate(
           broom::tidy(
           BSDA::tsum.test(
+            # note: this produces two lines of identical output due to the way
+            # the data are set up
             mean.x = mean[1], s.x = sd[1], n.x = n_deaths[1],
             mean.y = mean[2], s.y = sd[2], n.y = n_deaths[2])
           ),
@@ -547,6 +551,7 @@ tbl_descriptives_numeric_merged_years_with_ttest <-
   ) %>%
   list_rbind(names_to = "measure") %>%
   select(measure, cat_place_of_death, val_cohort_year, value, p_pretty) %>%
+  # the pivot_wider takes care of the duplicated p values from above
   pivot_wider(names_from = val_cohort_year, values_from = value) %>%
   mutate(
     measure = factor(measure, levels = unique(measure)),
@@ -566,6 +571,61 @@ tbl_descriptives_numeric_merged_years_with_ttest %>%
   mutate(measure = if_else(condition = duplicated(measure), true = " ", false = as.character(measure))) %>%
   write_csv(., file = file.path(dir_output, "tbl_descriptives_numeric_merged_years_with_ttest_home_deaths_only.csv"))
 ```
+
+## Corrected p-values, Benjamini-Hochberg
+
+Only using home deaths here!
+
+
+```{r}
+merged_years_fisher_tests <-
+  tbl_fisher_test_categorical_descriptives %>%
+  filter(cat_place_of_death=="Home")
+
+merged_years_t_tests <-
+  map(
+    .x = tbl_descriptives_data_numeric,
+    .f = function(data_tbl) {
+      data_tbl %>%
+        group_by(cat_place_of_death) %>%
+        merge_years_m_sd() %>%
+        mutate(
+          broom::tidy(
+          BSDA::tsum.test(
+            # note: this produces two lines of identical output due to the way
+            # the data are set up
+            mean.x = mean[1], s.x = sd[1], n.x = n_deaths[1],
+            mean.y = mean[2], s.y = sd[2], n.y = n_deaths[2])
+          ),
+        ) %>%
+        mutate(value = glue::glue("{signif(mean,3)} ({signif(sd,3)})"))
+    }
+  ) %>%
+  list_rbind(names_to = "measure") %>%
+  select(measure, cat_place_of_death, val_cohort_year, value, p.value) %>%
+  # the pivot_wider takes care of the duplicated p values from above
+  pivot_wider(names_from = val_cohort_year, values_from = value) %>%
+  mutate(
+    measure = factor(measure, levels = unique(measure)),
+  ) %>%
+  arrange(measure, cat_place_of_death) %>%
+  filter(cat_place_of_death=="Home")
+
+# TODO: does it matter if I remove some of the tests I didn't report first?
+bh_corrected_p_values <-
+  bind_rows(
+    merged_years_fisher_tests %>%
+      filter(!measure %in% c("Driving distance, N (%)", "Ethnicity, N (%)")),
+    merged_years_t_tests
+  ) %>%
+  select(measure, cat_place_of_death, p.value) %>%
+  mutate(
+    p.corrected = p.adjust(p.value, method = "BH"),
+    p_stars = gtools::stars.pval(p.corrected),
+    p_pretty = scales::label_pvalue()(p.corrected)
+  )
+```
+
 
 ## Outcomes by year & place of death
 
@@ -591,15 +651,17 @@ write_csv(tbl_descriptives_outcomes_by_year_pod_for_tbl, file =  file.path(dir_o
 ```{r}
 tbl_descriptives_outcomes_by_year_pod <-
   bind_rows(
-    los_by_pod %>% select(cat_place_of_death, val_cohort_year, mean, sd, mean_ci_lo, mean_ci_hi) %>% mutate(outcome = "Days in hospital"),
-    hosp_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "Number of\n hospitalisations"),
-    dtdt_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "Days between\n final discharge and death")
+    los_by_pod %>% select(cat_place_of_death, val_cohort_year, mean, sd, mean_ci_lo, mean_ci_hi) %>% mutate(outcome = "1) Days in hospital"),
+    hosp_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "2) Number of\n hospitalisations"),
+    dtdt_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "3) Days between\n final discharge and death")
   ) %>%
   mutate(outcome = factor(outcome, levels = unique(outcome)))
 
 (fig_outcomes_by_year_pod <-
+  tbl_descriptives_outcomes_by_year_pod %>%
+  # remove hospital from days between - doesn't make sense
+  filter(cat_place_of_death!="Hospital" | outcome!=levels(outcome)[3]) %>%
   ggplot(
-      tbl_descriptives_outcomes_by_year_pod,
       aes(
         x = val_cohort_year,
         y = mean,
@@ -615,11 +677,20 @@ tbl_descriptives_outcomes_by_year_pod <-
     scale_y_continuous(limits = c(0,NA), breaks = scales::breaks_pretty(n=6)) +
     labs(x = NULL, y = NULL))
 
+(fig_outcomes_by_year_pod_bw <-
+  fig_outcomes_by_year_pod +
+  scale_color_grey()
+)
 # png
 ggsave(fig_outcomes_by_year_pod, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
 
 # eps
 ggsave(fig_outcomes_by_year_pod, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod.eps"), bg = "white", units = "cm", width = 15, height = 10)
+
+# bw png + eps
+ggsave(fig_outcomes_by_year_pod_bw, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod_bw.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
+
+ggsave(fig_outcomes_by_year_pod_bw, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod_bw.eps"), bg = "white", units = "cm", width = 15, height = 10)
 ```
 
 
@@ -992,3 +1063,6 @@ tbl_negbin_combined %>%
   write_csv(., file = file.path(dir_output, "tbl_negbin_uni_adj_ame_sensitivity_check.csv"))
 ```
 
+# model diagnostics: VIF
+
+Note: copied manually from the safe haven export files
