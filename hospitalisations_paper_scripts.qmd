@@ -26,7 +26,7 @@ library(ggflowchart)  # for plotting a flowchart
 
 source("./FUNCTIONS.R")  # load common functions
 
-dir_output <- "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/drafts/hospitalisations paper/"
+dir_output <- "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/dissemination/drafts//hospitalisations paper/"
 ```
 
 ## Functions & constants
@@ -34,6 +34,9 @@ dir_output <- "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/co
 ```{r}
 # specify the order of place of death
 levels_place_of_death <- c("Hospital", "Home", "Care home", "All")
+
+levels_cod_nrs <- c("Cancer", "Circulatory", "Dementia & Alzheimer's", "Respiratory", 
+"Other", "COVID-19", "All causes")
 
 code_place_of_death_consistently <- function(data_tbl) {
   data_tbl %>%
@@ -352,6 +355,11 @@ driving_categorised_by_pod <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_h
   pivot_annual_to_long(new_col = "n_prop") %>%
   parse_n_prop(n_prop)
 
+```
+
+## Outcomes by place of deaths
+
+```{r}
 # causes of death by PoD
 cod_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_by_pod_cod_underlying (1).csv") %>%
   code_place_of_death_consistently %>%
@@ -360,6 +368,7 @@ cod_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_expo
   parse_n_prop(n_prop)
 
 # total days computed for everyone, including those not admitted
+# note that the SD for hospitalised individuals, derived from the full cohort SD, is approximate and may disagree with SD derived elsewhere!
 los_by_pod <- 
   read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/imgs2022_preliminary_results/descriptives_los_cohort_pod.csv") %>%
   code_place_of_death_consistently() %>%
@@ -369,14 +378,23 @@ los_by_pod <-
     mean_ci_hi = mean + qt(p = 0.975, df = n_admitted - 1) * sd /sqrt(n_admitted),
     ## adjust for proportion of 0s
     mean_adjusted = mean * denominator / n_admitted,
-      sd_adjusted = sd * sqrt(denominator / n_admitted),
+      # sd_adjusted = sd * sqrt(denominator / n_admitted),  # this is incorrect!
+      sd_adjusted = sqrt( (sd^2 - (n_admitted/denominator*(1-(n_admitted/denominator))*mean_adjusted^2)) / (n_admitted/denominator) ),
       mean_adjusted_ci_lo = mean_adjusted + qt(p = 0.025, df = n_admitted - 1) * sd_adjusted/sqrt(n_admitted),
       mean_adjusted_ci_hi = mean_adjusted + qt(p = 0.975, df = n_admitted - 1) * sd_adjusted/sqrt(n_admitted)
   )
 
-# this is already reported with denominator including those with 0 hospitalisations
+# this is reported with denominator including those with 0 hospitalisations
 hosp_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/smr01_spells_descriptives_by_pod.csv") %>%
-  code_place_of_death_consistently()
+  code_place_of_death_consistently() %>%
+  rename(n_admitted = n_users) %>%
+  left_join(cohort_by_pod %>% rename(denominator = n), join_by(cat_place_of_death, val_cohort_year)) %>%
+  mutate(
+    mean_adjusted = m * denominator / n_admitted,
+    sd_adjusted = sqrt( (sd^2 - (n_admitted/denominator*(1-(n_admitted/denominator))*mean_adjusted^2)) / (n_admitted/denominator) ),
+    mean_adjusted_ci_lo = mean_adjusted + qt(p = 0.025, df = n_admitted - 1) * sd_adjusted/sqrt(n_admitted),
+    mean_adjusted_ci_hi = mean_adjusted + qt(p = 0.975, df = n_admitted - 1) * sd_adjusted/sqrt(n_admitted)
+  )
 
 # only individuals with 1+ hospitalisations included in this
 dtdt_by_pod <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/exploratory_descriptives/dtdt_smr01_descriptives_by_pod.csv") %>%
@@ -396,6 +414,76 @@ no_hospitalisations <- read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_h
   code_place_of_death_consistently
 ```
 
+## Outcomes by place of death & cause of death
+
+For these, I'd exported the following, broken down by place of death & cause of death:
+
+- means & 95% CIs for (denominators being individuals with at least one hospitalisation):
+  - days in hospital
+  - number of hospitalisations
+  - days between discharge and death
+- number of individuals with no hospitalisations
+
+Using the above data, and the full cohort denominators from further above, I can derive the descriptives (number of individuals and SDs).
+
+Note that the SDs in `los_by_pod_cod` are derived from the confidence interval and sample size (i.e. number of people with hospitalisations) and are therefore exact, whereas in `los_by_pod` these were derived from the mean and SD of the full sample (including those with no hospitalisations), so there is some degree of imprecision, and a little disagreement in expected!
+
+```{r}
+## days in hospital are for users only (denominator = persons with at least one hospitalisation) and in mean [ci_lo, ci_hi] format; I can determine the number of individuals with at least one hospitalisation from the number of individuals with no hospitalisations by CoD
+no_hosp_by_pod_cod <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_by_pod_cod_underlying_individuals_without_hosp.csv") %>%
+  pivot_annual_to_long(new_col = "n_prop") %>%
+  parse_n_prop(col_n_prop = "n_prop") %>%
+  code_place_of_death_consistently() %>%
+  rename(n_nonadmitted = n, prop_nonadmitted = prop)
+
+# next, derive number and proportions of people by CoD and PoD who had at least one hospitalisation
+hosp1plus_by_cod_pod <-
+  no_hosp_by_pod_cod %>%
+  left_join(
+    bind_rows(
+      # merge cod_by_pod with itself but codnensed into All causes
+      cod_by_pod,
+      cod_by_pod %>% group_by(cat_place_of_death, val_cohort_year) %>% summarise(
+        cat_cod_nrs = factor("All causes"),
+        n = sum(n),
+        prop = 1,
+        .groups = "drop"
+      )
+    ) %>% select(-prop), 
+    join_by(cat_cod_nrs, cat_place_of_death, val_cohort_year)
+  ) %>%
+  mutate(n_admitted = n - n_nonadmitted, prop_admitted = n_admitted/n) %>%
+  select(-c(n_nonadmitted,prop_nonadmitted))
+
+los_by_pod_cod <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_cod_underlying_mean_los.csv") %>%
+  pivot_annual_to_long(new_col = "m_ci") %>%
+  parse_m_ci(col_m_ci = "m_ci") %>%
+  code_place_of_death_consistently %>%
+  # get denominator from the cod by pod file
+  left_join(
+    hosp1plus_by_cod_pod, by = join_by(cat_cod_nrs, cat_place_of_death, val_cohort_year)) %>%
+  recalculate_sd_from_mean_ci_and_n(mean_var = m, ci_lo_var = ci_lo, n_var = n_admitted , new_sd_var = sd)
+
+hosp_by_pod_cod <-
+  read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_cod_underlying_mean_spells.csv") %>%
+  pivot_annual_to_long(new_col = "m_ci") %>%
+  parse_m_ci(col_m_ci = "m_ci") %>%
+  code_place_of_death_consistently %>%
+  # get denominator from the cod by pod file
+  left_join(
+    hosp1plus_by_cod_pod, by = join_by(cat_cod_nrs, cat_place_of_death, val_cohort_year)) %>%
+  recalculate_sd_from_mean_ci_and_n(mean_var = m, ci_lo_var = ci_lo, n_var = n_admitted , new_sd_var = sd)
+
+dtdt_by_pod_cod <-
+  read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/service_usage_by_cause_of_death/deaths_pod_cod_underlying_mean_dtdt.csv") %>%
+  pivot_annual_to_long(new_col = "m_ci") %>%
+  parse_m_ci(col_m_ci = "m_ci") %>%
+  code_place_of_death_consistently %>%
+  # get denominator from the cod by pod file
+  left_join(
+    hosp1plus_by_cod_pod, by = join_by(cat_cod_nrs, cat_place_of_death, val_cohort_year)) %>%
+  recalculate_sd_from_mean_ci_and_n(mean_var = m, ci_lo_var = ci_lo, n_var = n_admitted , new_sd_var = sd)
+```
 
 
 # Distribution graphs
@@ -447,6 +535,8 @@ tbl_descriptives_categorical_merged_years <-
   arrange(measure, cat_place_of_death)
 
 # fisher's test of distributions within each PoD
+# this generates N=1e4 simulations per test, so the numeric values may differ between runs - we set a seed first to ensure same results
+set.seed(42)
 tic()
 tbl_fisher_test_categorical_descriptives <-
   map(
@@ -520,9 +610,9 @@ tbl_descriptives_data_numeric <- list(
     rename(mean = m, n_deaths = n),
   "Days in hospital, Mean (SD)" = los_by_pod %>% rename(n_deaths = n_admitted),
   "Number of hospitalisations, Mean (SD)" = hosp_by_pod %>%
-    rename(mean = m, n_deaths = n_users),
+    rename(mean = mean_adjusted, n_deaths = n_admitted),
   "Days between discharge and death, Mean (SD)" = dtdt_by_pod %>%
-    left_join(hosp_by_pod %>% select(val_cohort_year, cat_place_of_death, n_deaths = n_users), join_by(cat_place_of_death, val_cohort_year)) %>%
+    left_join(hosp_by_pod %>% select(val_cohort_year, cat_place_of_death, n_deaths = n_admitted), join_by(cat_place_of_death, val_cohort_year)) %>%
     rename(mean = m)
 )
 
@@ -536,6 +626,8 @@ tbl_descriptives_numeric_merged_years_with_ttest <-
         mutate(
           broom::tidy(
           BSDA::tsum.test(
+            # note: this produces two lines of identical output due to the way
+            # the data are set up
             mean.x = mean[1], s.x = sd[1], n.x = n_deaths[1],
             mean.y = mean[2], s.y = sd[2], n.y = n_deaths[2])
           ),
@@ -547,6 +639,7 @@ tbl_descriptives_numeric_merged_years_with_ttest <-
   ) %>%
   list_rbind(names_to = "measure") %>%
   select(measure, cat_place_of_death, val_cohort_year, value, p_pretty) %>%
+  # the pivot_wider takes care of the duplicated p values from above
   pivot_wider(names_from = val_cohort_year, values_from = value) %>%
   mutate(
     measure = factor(measure, levels = unique(measure)),
@@ -567,6 +660,64 @@ tbl_descriptives_numeric_merged_years_with_ttest %>%
   write_csv(., file = file.path(dir_output, "tbl_descriptives_numeric_merged_years_with_ttest_home_deaths_only.csv"))
 ```
 
+## Corrected p-values, Benjamini-Hochberg
+
+Only using home deaths here!
+
+
+```{r}
+merged_years_fisher_tests <-
+  tbl_fisher_test_categorical_descriptives %>%
+  filter(cat_place_of_death=="Home")
+
+merged_years_t_tests <-
+  map(
+    .x = tbl_descriptives_data_numeric,
+    .f = function(data_tbl) {
+      data_tbl %>%
+        group_by(cat_place_of_death) %>%
+        merge_years_m_sd() %>%
+        mutate(
+          broom::tidy(
+          BSDA::tsum.test(
+            # note: this produces two lines of identical output due to the way
+            # the data are set up
+            mean.x = mean[1], s.x = sd[1], n.x = n_deaths[1],
+            mean.y = mean[2], s.y = sd[2], n.y = n_deaths[2])
+          ),
+        ) %>%
+        mutate(value = glue::glue("{signif(mean,3)} ({signif(sd,3)})"))
+    }
+  ) %>%
+  list_rbind(names_to = "measure") %>%
+  select(measure, cat_place_of_death, val_cohort_year, value, p.value) %>%
+  # the pivot_wider takes care of the duplicated p values from above
+  pivot_wider(names_from = val_cohort_year, values_from = value) %>%
+  mutate(
+    measure = factor(measure, levels = unique(measure)),
+  ) %>%
+  arrange(measure, cat_place_of_death) %>%
+  filter(cat_place_of_death=="Home")
+
+# note: here I remove the unused tests so they don't feature in the calculation
+bh_corrected_p_values <-
+  bind_rows(
+    merged_years_fisher_tests %>%
+      filter(!measure %in% c("Driving distance, N (%)", "Ethnicity, N (%)")),
+    merged_years_t_tests
+  ) %>%
+  select(measure, cat_place_of_death, p.value) %>%
+  mutate(
+    p.corrected = p.adjust(p.value, method = "BH"),
+    p_stars = gtools::stars.pval(p.corrected),
+    p_pretty = scales::label_pvalue()(p.corrected)
+  )
+
+bh_corrected_p_values %>%
+  write_csv(., file = file.path(dir_output, "tbl_descriptives_p_values_bh_correction_home_deaths_only.csv"))
+```
+
+
 ## Outcomes by year & place of death
 
 This is for the supplementary file as it's for context to the home decedents' data.
@@ -575,9 +726,9 @@ This is for the supplementary file as it's for context to the home decedents' da
 tbl_descriptives_outcomes_by_year_pod_for_tbl <-
   bind_rows(
     los_by_pod %>%
-      transmute(outcome = "Days in hospital", cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(mean,3)} ({signif(sd,3)})")),
+      transmute(outcome = "Days in hospital", cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(mean_adjusted,3)} ({signif(sd_adjusted,3)})")),
     hosp_by_pod %>%
-  transmute(outcome = "Number of hospitalisations", cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(m,3)} ({signif(sd,3)})")),
+  transmute(outcome = "Number of hospitalisations", cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(mean_adjusted,3)} ({signif(sd_adjusted,3)})")),
     dtdt_by_pod %>%
   transmute(outcome = "Days between final discharge & death", cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(m,3)} ({signif(sd,3)})"))
   ) %>%
@@ -591,15 +742,17 @@ write_csv(tbl_descriptives_outcomes_by_year_pod_for_tbl, file =  file.path(dir_o
 ```{r}
 tbl_descriptives_outcomes_by_year_pod <-
   bind_rows(
-    los_by_pod %>% select(cat_place_of_death, val_cohort_year, mean, sd, mean_ci_lo, mean_ci_hi) %>% mutate(outcome = "Days in hospital"),
-    hosp_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "Number of\n hospitalisations"),
-    dtdt_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "Days between\n final discharge and death")
+    los_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = mean_adjusted, sd = sd_adjusted, mean_ci_lo = mean_adjusted_ci_lo, mean_ci_hi = mean_adjusted_ci_hi) %>% mutate(outcome = "1) Days in hospital"),
+    hosp_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = mean_adjusted, sd_adjusted, mean_ci_lo = mean_adjusted_ci_lo, mean_ci_hi = mean_adjusted_ci_hi) %>% mutate(outcome = "2) Number of\n hospitalisations"),
+    dtdt_by_pod %>% select(cat_place_of_death, val_cohort_year, mean = m, sd, mean_ci_lo = ci_lo, mean_ci_hi = ci_hi) %>% mutate(outcome = "3) Days between\n final discharge and death")
   ) %>%
   mutate(outcome = factor(outcome, levels = unique(outcome)))
 
 (fig_outcomes_by_year_pod <-
+  tbl_descriptives_outcomes_by_year_pod %>%
+  # remove hospital from days between - doesn't make sense
+  filter(cat_place_of_death!="Hospital" | outcome!=levels(outcome)[3]) %>%
   ggplot(
-      tbl_descriptives_outcomes_by_year_pod,
       aes(
         x = val_cohort_year,
         y = mean,
@@ -615,11 +768,20 @@ tbl_descriptives_outcomes_by_year_pod <-
     scale_y_continuous(limits = c(0,NA), breaks = scales::breaks_pretty(n=6)) +
     labs(x = NULL, y = NULL))
 
+(fig_outcomes_by_year_pod_bw <-
+  fig_outcomes_by_year_pod +
+  scale_color_grey()
+)
 # png
 ggsave(fig_outcomes_by_year_pod, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
 
 # eps
 ggsave(fig_outcomes_by_year_pod, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod.eps"), bg = "white", units = "cm", width = 15, height = 10)
+
+# bw png + eps
+ggsave(fig_outcomes_by_year_pod_bw, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod_bw.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
+
+ggsave(fig_outcomes_by_year_pod_bw, filename = file.path(dir_output, "fig_outcomes_by_year_and_pod_bw.eps"), bg = "white", units = "cm", width = 15, height = 10)
 ```
 
 
@@ -634,9 +796,9 @@ strobe_diagram <- tribble(
   "4", "Home decedents in model", 97948,
   "5", "Excluded: missing covariates", missingness_overall %>% pull(n) %>% sum,
   "6b", "Excluded: Home decedents without hospitalisations", no_hospitalisations %>% filter(cat_place_of_death=="Home") %>% pull(n) %>% sum,
-  "6", "Home decedents with at least one hospitalisation", hosp_by_pod %>% filter(cat_place_of_death=="Home") %>% pull(n_users) %>% sum,
+  "6", "Home decedents with at least one hospitalisation", hosp_by_pod %>% filter(cat_place_of_death=="Home") %>% pull(n_admitted) %>% sum,
   "7","Home decedents with at least one hospitalisation in model", 60339,
-  "8", "Excluded: missing covariates", (hosp_by_pod %>% filter(cat_place_of_death=="Home") %>% pull(n_users) %>% sum) - 60339,
+  "8", "Excluded: missing covariates", (hosp_by_pod %>% filter(cat_place_of_death=="Home") %>% pull(n_admitted) %>% sum) - 60339,
 )
 
 # (fig_patient_flow <- ggflowchart(
@@ -990,5 +1152,157 @@ tbl_negbin_combined %>%
     )) %>%
   ungroup %>%
   write_csv(., file = file.path(dir_output, "tbl_negbin_uni_adj_ame_sensitivity_check.csv"))
+```
+
+# model diagnostics: VIF
+
+Note: copied manually from the safe haven export files
+
+# Number & proportion of individuals with no hospitalisations
+
+This is in reply to one of the reviewers suggesting this detail was missing, specifically broken down year by year.
+
+```{r}
+tbl_no_hospitalisations <-
+  no_hospitalisations %>%
+  mutate(n_prop = glue::glue("{scales::comma(n)} ({scales::label_percent(accuracy=0.1)(prop)})")) %>%
+  select(-c(n,prop,cat_cod_nrs)) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = n_prop)
+  
+write_csv(tbl_no_hospitalisations, file =  file.path(dir_output, "tbl_no_hospitalisations_by_year_and_pod.csv"))
+```
+
+
+# Descriptives of outcomes by CoD
+
+## Table
+
+```{r}
+# note: the los and hosp files below are already based on only individuals with hospitalisations, so their mean and sd did not need adjusting
+tbl_descriptives_outcomes_by_year_cod <-
+  bind_rows(
+    los_by_pod_cod %>%
+      transmute(outcome = "Days in hospital", cat_cod_nrs, cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(m,3)} ({signif(sd,3)})")),
+    hosp_by_pod_cod %>%
+  transmute(outcome = "Number of hospitalisations", cat_cod_nrs, cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(m,3)} ({signif(sd,3)})")),
+    dtdt_by_pod_cod %>%
+  transmute(outcome = "Days between final discharge & death", cat_cod_nrs, cat_place_of_death, val_cohort_year, m_sd = glue::glue("{signif(m,3)} ({signif(sd,3)})"))
+  ) %>%
+  pivot_wider(names_from = val_cohort_year, values_from = m_sd)
+```
+
+## Graphs
+
+### Days in hospital
+
+There's a lot of information here, so I think it makes sense to split it by outcome, and by place of death probably.
+
+```{r}
+(fig_los_by_pod_cod <-
+  los_by_pod_cod %>%
+   mutate(cat_cod_nrs = factor(cat_cod_nrs, levels = levels_cod_nrs)) %>%
+  ggplot(
+    aes(x = val_cohort_year, y = m, group = cat_cod_nrs, shape = cat_cod_nrs, colour = cat_cod_nrs, linetype = cat_cod_nrs)
+  ) +
+  facet_wrap(vars(cat_place_of_death)) +
+  geom_line() +
+  geom_point(size = rel(2)) +
+  scale_shape_manual(values = c(scales::shape_pal()(5),4,1), drop=FALSE) +
+  scale_linetype_manual(values = c(rep("solid",5),"blank","dashed"), drop=FALSE) +
+  scale_colour_grey() +
+  # ylim(c(0,NA)) +
+  labs(
+    caption = str_wrap("Total inpatient hospital days in last 12 months of life.\nOnly individuals with at least one hospital stay were included.", width = 100),
+    x = NULL,
+    y = NULL
+  ))
+
+# png
+ggsave(fig_los_by_pod_cod, filename = file.path(dir_output, "fig_los_by_pod_cod.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
+```
+
+### Number of hospitalisations
+
+```{r}
+(fig_hosp_by_pod_cod <-
+  hosp_by_pod_cod %>%
+   mutate(cat_cod_nrs = factor(cat_cod_nrs, levels = levels_cod_nrs)) %>%
+  ggplot(
+    aes(x = val_cohort_year, y = m, group = cat_cod_nrs, shape = cat_cod_nrs, colour = cat_cod_nrs, linetype = cat_cod_nrs)
+  ) +
+  facet_wrap(vars(cat_place_of_death)) +
+  geom_line() +
+  geom_point(size = rel(2)) +
+  scale_shape_manual(values = c(scales::shape_pal()(5),4,1), drop=FALSE) +
+  scale_linetype_manual(values = c(rep("solid",5),"blank","dashed"), drop=FALSE) +
+  scale_colour_grey() +
+  # ylim(c(0,NA)) +
+  labs(
+    caption = str_wrap("Inpatient hospital stays in last 12 months of life.\nOnly individuals with at least one hospital stay were included.", width = 100),
+    x = NULL,
+    y = NULL
+  ))
+
+# png
+ggsave(fig_hosp_by_pod_cod, filename = file.path(dir_output, "fig_hosp_by_pod_cod.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
+```
+
+### Days between discharge and death
+
+```{r}
+(fig_dtdt_by_pod_cod <-
+  dtdt_by_pod_cod %>%
+   mutate(cat_cod_nrs = factor(cat_cod_nrs, levels = levels_cod_nrs)) %>%
+   filter(cat_place_of_death != "Hospital") %>%  # remove hospital as it doesn't make sense
+  ggplot(
+    aes(x = val_cohort_year, y = m, group = cat_cod_nrs, shape = cat_cod_nrs, colour = cat_cod_nrs, linetype = cat_cod_nrs)
+  ) +
+  facet_wrap(vars(cat_place_of_death)) +
+  geom_line() +
+  geom_point(size = rel(2)) +
+  scale_shape_manual(values = c(scales::shape_pal()(5),4,1), drop=FALSE) +
+  scale_linetype_manual(values = c(rep("solid",5),"blank","dashed"), drop=FALSE) +
+  scale_colour_grey() +
+  # ylim(c(0,NA)) +
+  labs(
+    caption = str_wrap("Days between discharge and death.\nOnly individuals with at least one hospital stay were included.", width = 100),
+    x = NULL,
+    y = NULL
+  ))
+
+# png
+ggsave(fig_dtdt_by_pod_cod, filename = file.path(dir_output, "fig_dtdt_by_pod_cod.png"), bg = "white", units = "cm", width = 15, height = 10, dpi = 600)
+```
+
+
+# Testing feasibility of model with time trend added
+
+One reviewer said to include the time trend in the model in addition to the pandemic period (pre- vs pandemic). I think this is best done by having a year variable (maybe 0 for 2015, increasing to 6 for 2021?), and have the pre-pandemic and pandemic variables be 0 for 2015-2020 and 1 for 2021, respectively. This does mean that there is a correlation between pandemic period and year, which may or may not be an issue...
+
+To check if this will work, I can generate some data that matches the summary data I've produced, and use that to run a regression model.
+
+```{r}
+set.seed(20260526)
+test_los <-
+  los_by_pod %>%
+  filter(cat_place_of_death=="Home") %>%
+  group_by(cat_place_of_death,val_cohort_year) %>%
+  summarise(
+    # simulated = list(los=rnorm(n=n_admitted, mean = mean, sd = sd))
+    los_simulated = list(rpois(n=n_admitted, lambda = mean)),
+    .groups="drop"
+  ) %>%
+  unnest(cols = c(los_simulated)) %>%
+  mutate(
+    bin_pandemic = val_cohort_year=="2020-21",
+    val_year = as.integer(str_sub(val_cohort_year,1,4)) - 2015L
+  )
+
+test_los_model <- glm(los_simulated ~  val_year + bin_pandemic, family = "poisson", data = test_los)
+
+broom::tidy(test_los_model, exponentiate = TRUE)
+car::vif(test_los_model)
+
+test_los_model_ols <- lm(los_simulated ~ val_year + bin_pandemic, data = test_los)
 ```
 

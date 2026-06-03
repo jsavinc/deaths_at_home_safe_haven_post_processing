@@ -209,7 +209,8 @@ recalculate_mean_for_users_only <- function(data_tbl, denominator_tbl) {
     ) %>%
     mutate(
       m_users = m * n_cohort / n_users,
-      sd_users = sd * sqrt(n_cohort / n_users),
+      # sd_users = sd * sqrt(n_cohort / n_users), # note: this is incorrect!
+      sd_users = sqrt( (sd^2 - (n_users/n_cohort*(1-(n_users/n_cohort))*m_users^2)) / (n_users/n_cohort) ),
       ci_lo_users = m_users + qt(p = 0.025, df = n_users - 1) * sd_users/sqrt(n_users),
       ci_hi_users = m_users + qt(p = 0.975, df = n_users - 1) * sd_users/sqrt(n_users)
     )
