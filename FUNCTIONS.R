@@ -6,6 +6,7 @@ require(tidyverse)
 
 # Constants ---------------------------------------------------------------
 
+
 ## For ordering factors etc.
 order_place_of_death <-
   c("Hospital", "Home & non-institution", "Care home & other")
@@ -21,6 +22,8 @@ order_ur8 <-
     "Very Remote Rural Areas",
     "Missing"
   )
+order_cohort_year <-
+  c("2015-16" ,"2016-17", "2017-18", "2018-19", "2019-20", "2020-21", "All")
 
 variable_names <- tribble(
   ~short_name, ~long_name,
