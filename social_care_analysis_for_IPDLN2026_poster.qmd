@@ -1,0 +1,399 @@
+---
+title: "Social Care analysis script for IPDLN 2026 poster"
+author: "Jan Savinc"
+format: html
+editor: source
+editor_options: 
+  chunk_output_type: console
+---
+
+# Preliminaries
+
+## Packages
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(broom)  # for tidy()
+library(tictoc)  # for timing
+library(janitor)  # for some nice cleaning functions
+
+source("./FUNCTIONS.R")  # load utility functions
+```
+
+## Functions & constants
+
+```{r}
+# where to save outputs
+dir_output <- "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/dissemination/drafts/IPDLN 2026/"
+
+# specify the order of place of death
+levels_place_of_death <- c("Hospital", "Home", "Care home", "All")
+
+code_place_of_death_consistently <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      ## shorten to "Home"
+      cat_place_of_death = if_else(cat_place_of_death == "Home & non-institution", true = "Home", false = cat_place_of_death),
+      ## Shorten to "Care home"
+      cat_place_of_death = if_else(cat_place_of_death == "Care home & other", true = "Care home", false = cat_place_of_death),
+      cat_place_of_death = factor(cat_place_of_death, levels = levels_place_of_death)
+    )
+}
+```
+
+## Load data
+
+```{r}
+demographics_by_recipient <-
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_analysis/tbl_characteristics_of_soc_care_recipients_vs_nonrecipients.csv") %>%
+  mutate(val_cohort_year = factor(val_cohort_year, levels = order_cohort_year))
+
+comorbidities_by_recipient <-
+  read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/social_care_analysis/tbl_freq_comorbidities_recipients_vs_nonrecipients.csv") %>%
+  mutate(val_cohort_year = factor(val_cohort_year, levels = order_cohort_year))
+
+# list the variables in the demographics table
+demographics_by_recipient %>% count(variable)
+```
+
+## Wrangle data
+
+### Consistent place of death name in demographics
+
+```{r}
+demographics_by_recipient <-
+  demographics_by_recipient %>%
+  mutate(
+    level = case_match(level,
+                       "Home & non-institution" ~ "Home",
+                       "Care home & other" ~ "Care home",
+                       .default = level)
+  )
+```
+
+
+### Compute year-on-year changes in demographics
+
+Merge the previous years' proportion and compute the difference. Start by deriving the previous year!
+
+```{r}
+demographics_by_recipient <-
+  demographics_by_recipient %>%
+  mutate(prev_year = order_cohort_year[as.integer(val_cohort_year)-1L]) %>%
+  left_join(demographics_by_recipient %>% select(val_cohort_year:level,prop_previous = prop), by = join_by(prev_year==val_cohort_year, cat_soc_care_recipient, variable, level)) %>%
+  mutate(
+    prop_previous = if_else(val_cohort_year=="All", NA_real_, prop_previous),  # set to NA for the All years to avoid nonsensical results
+    prop_change = prop - prop_previous
+    ) %>%
+  select(-c(prev_year,prop_previous))
+```
+
+
+### Compute year-on-year changes in comorbidities
+
+Merge the previous years' proportion and compute the difference. Start by deriving the previous year!
+
+```{r}
+comorbidities_by_recipient <-
+  comorbidities_by_recipient %>%
+  mutate(prev_year = order_cohort_year[as.integer(val_cohort_year)-1L]) %>%
+  left_join(comorbidities_by_recipient %>% select(val_cohort_year:cat_comorbidity,perc_previous = perc), by = join_by(prev_year==val_cohort_year, cat_soc_care_recipient, cat_comorbidity)) %>%
+  mutate(
+    perc_previous = if_else(val_cohort_year=="All", NA_real_, perc_previous),  # set to NA for the All years to avoid nonsensical results
+    perc_change = perc - perc_previous
+    ) %>%
+  select(-c(prev_year,perc_previous))
+```
+
+
+
+### Top 12 most frequent comorbidities
+
+I derive these from the "All" cohort year and "Both" social care recipient categories...
+
+```{r}
+top_12_comorb <-
+  comorbidities_by_recipient %>%
+  filter(val_cohort_year=="All") %>%
+  count(cat_comorbidity, wt = n) %>%
+  slice_max(order_by = n, n = 12) %>% pull(cat_comorbidity)
+```
+
+
+# Outputs
+
+## Age by recipients
+
+- ethnicity doesn't make for a good graph...
+- 
+
+```{r}
+# TODO: arrange multiple of these in a grid using patchwork
+demographics_by_recipient %>% 
+  filter(variable == "cat_age_decades") %>%
+  filter(val_cohort_year == "All") %>%
+  filter(cat_soc_care_recipient!="Both") %>%
+  ggplot(
+    aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+  ) +
+  geom_col(position = position_dodge(width = 0.9), colour = "grey10")
+
+# ethnicity not very visualisable
+demographics_by_recipient %>% 
+  filter(variable == "cat_ethnic_group_collapsed") %>%
+  filter(val_cohort_year == "All") %>%
+  filter(cat_soc_care_recipient!="Both") %>%
+  filter(level!="White") %>%
+  ggplot(
+    aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+  ) +
+  geom_col(position = position_dodge(width = 0.9), colour = "grey10")
+
+demographics_by_recipient %>% 
+  filter(variable == "cat_marital_status_condensed") %>%
+  filter(val_cohort_year == "All") %>%
+  filter(cat_soc_care_recipient!="Both") %>%
+  ggplot(
+    aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+  ) +
+  geom_col(position = position_dodge(width = 0.9), colour = "grey10")
+
+demographics_by_recipient %>% 
+  filter(variable == "cat_sex") %>%
+  filter(val_cohort_year == "All") %>%
+  filter(cat_soc_care_recipient!="Both") %>%
+  ggplot(
+    aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+  ) +
+  geom_col(position = position_dodge(width = 0.9), colour = "grey10")
+
+demographics_by_recipient %>% 
+  filter(variable == "cat_simd_quintile") %>%
+  filter(val_cohort_year == "All") %>%
+  filter(cat_soc_care_recipient!="Both") %>%
+  ggplot(
+    aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+  ) +
+  geom_col(position = position_dodge(width = 0.9), colour = "grey10")
+
+demographics_by_recipient %>% 
+  filter(variable == "cat_ur2") %>%
+  filter(val_cohort_year == "All") %>%
+  filter(cat_soc_care_recipient!="Both") %>%
+  ggplot(
+    aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+  ) +
+  geom_col(position = position_dodge(width = 0.9), colour = "grey10")
+
+demographics_by_recipient %>% 
+  filter(variable == "cat_place_of_death") %>%
+  filter(val_cohort_year == "All") %>%
+  filter(cat_soc_care_recipient!="Both") %>%
+  ggplot(
+    aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+  ) +
+  geom_col(position = position_dodge(width = 0.9), colour = "grey10")
+```
+
+## Demographics over time
+
+- in 2020/21 age distribution has changed very little
+- in 2020/21 sex shifted towards higher proportion in males in both recipients and non-recipients
+- in 2020/21 SIMD has seen a decrease in 2nd quintile and increase in 1st quintile, while 3-5 remained similar
+- not much changed on marital status
+
+
+```{r}
+subplot_data_extract <- function(which_var) {
+  demographics_by_recipient %>% 
+      filter(variable == which_var) %>%
+      filter(val_cohort_year == "2020-21") %>%
+      filter(cat_soc_care_recipient!="Both") %>%
+      mutate(level = factor(level, levels=unique(level)))  # set order of factor levels as it was exported
+}
+
+subplot_ggplot <- function(data, y = "prop") {
+  ggplot(
+    data = data,
+    aes(x = level, y = .data[[y]], fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+    ) +
+    geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+    scale_y_continuous(labels = scales::label_percent()) +
+    labs(x=NULL,y=NULL) +
+    theme(plot.title = element_text(hjust = 0.5))
+}
+
+(subplot_age <-
+  wrap_plots(
+    subplot_data_extract("cat_age_decades") %>%
+      subplot_ggplot() +
+      labs(title="2020-21")
+    ,
+    subplot_data_extract("cat_age_decades") %>%
+      subplot_ggplot(y = "prop_change") +
+      scale_y_continuous(labels = scales::label_percent(), limits = c(-0.02, 0.02)) +
+      labs(title="Percentage point change\nfrom 2019-20")
+    ,
+    guides = "collect"
+    )) &
+    plot_annotation(title = "Age groups")
+
+(subplot_sex <-
+  wrap_plots(
+    subplot_data_extract("cat_sex") %>%
+      subplot_ggplot() +
+      labs(title="2020-21")
+    ,
+    subplot_data_extract("cat_sex") %>%
+      subplot_ggplot(y = "prop_change") +
+      scale_y_continuous(labels = scales::label_percent(), limits = c(-0.02, 0.02)) +
+      labs(title="Percentage point change\nfrom 2019-20")
+    ,
+    guides = "collect"
+    )) &
+    plot_annotation(title = "Sex")
+
+(subplot_marstat <-
+  wrap_plots(
+    subplot_data_extract("cat_marital_status_condensed") %>%
+      subplot_ggplot() +
+      labs(title="2020-21")
+    ,
+    subplot_data_extract("cat_marital_status_condensed") %>%
+      subplot_ggplot(y = "prop_change") +
+      scale_y_continuous(labels = scales::label_percent(), limits = c(-0.02, 0.02)) +
+      labs(title="Percentage point change\nfrom 2019-20")
+    ,
+    guides = "collect"
+    )) &
+    plot_annotation(title = "Marital status")
+
+(subplot_simd <-
+  wrap_plots(
+    subplot_data_extract("cat_simd_quintile") %>%
+      subplot_ggplot() +
+      labs(title="2020-21")
+    ,
+    subplot_data_extract("cat_simd_quintile") %>%
+      subplot_ggplot(y = "prop_change") +
+      scale_y_continuous(labels = scales::label_percent(), limits = c(-0.02, 0.02)) +
+      labs(title="Percentage point change\nfrom 2019-20")
+    ,
+    guides = "collect"
+    )) &
+    plot_annotation(title = "Deprivation (SIMD quintile)")
+
+(subplot_ur2 <-
+  wrap_plots(
+    subplot_data_extract("cat_ur2") %>%
+      subplot_ggplot() +
+      labs(title="2020-21")
+    ,
+    subplot_data_extract("cat_ur2") %>%
+      subplot_ggplot(y = "prop_change") +
+      scale_y_continuous(labels = scales::label_percent(), limits = c(-0.02, 0.02)) +
+      labs(title="Percentage point change\nfrom 2019-20")
+    ,
+    guides = "collect"
+    )) &
+    plot_annotation(title = "Urban-rural location")
+
+(subplot_pod <-
+  wrap_plots(
+    subplot_data_extract("cat_place_of_death") %>%
+      subplot_ggplot() +
+      labs(title="2020-21")
+    ,
+    subplot_data_extract("cat_place_of_death") %>%
+      subplot_ggplot(y = "prop_change") +
+      # scale_y_continuous(labels = scales::label_percent(), limits = c(-0.02, 0.02)) +
+      labs(title="Percentage point change\nfrom 2019-20")
+    ,
+    guides = "collect"
+    )) &
+    plot_annotation(title = "Place of death")
+
+# TODO: I lose the plot_annotation title for the subplots in this step...
+wrap_plots(
+  list(
+    subplot_age, subplot_sex,
+    subplot_pod, subplot_marstat,
+    subplot_simd, subplot_ur2
+  ), ncol = 2, nrow = 3
+)
+
+# TODO: below is cruft, remove
+
+# demographics_by_recipient %>% 
+#   filter(variable == "cat_age_decades") %>%
+#   filter(val_cohort_year == "2020-21") %>%
+#   filter(cat_soc_care_recipient!="Both") %>%
+#   pivot_longer(cols = c(prop, prop_change), names_to = "period", values_to = "prop") %>%
+#   mutate(period = case_match(period, "prop"~"2020-21", "prop_change"~"change from 2019-20")) %>%
+#   ggplot(
+#     aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+#   ) +
+#   geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+#   facet_wrap(vars(period, val_cohort_year), scales = "free_y")
+# 
+# 
+# demographics_by_recipient %>% 
+#   filter(variable == "cat_marital_status_condensed") %>%
+#   filter(val_cohort_year != "All") %>%
+#   filter(cat_soc_care_recipient!="Both") %>%
+#   ggplot(
+#     aes(x = level, y = prop, fill = cat_soc_care_recipient, group = cat_soc_care_recipient)
+#   ) +
+#   geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+#   facet_wrap(vars(val_cohort_year))
+```
+
+## Comorbid conditions over time
+
+Only a few comorbidities that were more common in social care non-recipients... the individuals affected likely die before reaching social care age.
+
+- solid tumour without metastasis
+- metastatic cancer
+- alcohol abuse
+- liver disease
+- lymphoma
+- psychoses
+- drug abuse
+- aids/hiv
+
+```{r}
+# prints the comorbidities more common in non-recipients
+comorbidities_by_recipient %>% select(-c(n, perc_change)) %>% pivot_wider(names_from = cat_soc_care_recipient, values_from = perc) %>% filter(Recipient < `Non-recipient`) %>% arrange(desc(Recipient)) %>% print_all
+
+# TODO: decide how to present this... only the most frequent comorbs, but also the ones with the biggest difference between recipients and non-recipients?
+# TODO: changes in pandemic weren't massive, not sure how to present those...
+
+(subplot_comorbidities <-
+  wrap_plots(
+    comorbidities_by_recipient %>% 
+      filter(val_cohort_year == "2020-21") %>%
+      filter(cat_comorbidity %in% top_12_comorb) %>%
+      mutate(cat_comorbidity = factor(cat_comorbidity, levels=unique(cat_comorbidity))) %>%  # set order of factor levels as it was exported
+      ggplot(aes(x=cat_comorbidity,y=perc,fill=cat_soc_care_recipient,group=cat_soc_care_recipient)) +
+      geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+      scale_y_continuous(labels = scales::label_percent()) +
+      theme(plot.title = element_text(hjust = 0.5)) +
+      labs(x=NULL,y=NULL,title="2020-21")
+    ,
+    comorbidities_by_recipient %>% 
+      filter(val_cohort_year == "2020-21") %>%
+      filter(cat_comorbidity %in% top_12_comorb) %>%
+      mutate(cat_comorbidity = factor(cat_comorbidity, levels=unique(cat_comorbidity))) %>%  # set order of factor levels as it was exported
+      ggplot(aes(x=cat_comorbidity,y=perc_change,fill=cat_soc_care_recipient,group=cat_soc_care_recipient)) +
+      geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+      scale_y_continuous(labels = scales::label_percent()) +
+      theme(plot.title = element_text(hjust = 0.5)) +
+      labs(x=NULL,y=NULL,title="Percentage point change\nfrom 2019-20")
+    ,
+    guides = "collect"
+    ) &
+    plot_annotation(title = "Comorbid conditions")
+)
+```
+
