@@ -57,9 +57,18 @@ variable_names <- tribble(
 
 # Theme settings ----------------------------------------------------------
 
+## note: using showtext results in difficult to troubleshoot font sizing issues
+# sysfonts::font_add_google("Gentium Book Plus")
+# sysfonts::font_add_google("Lato")
+# showtext::showtext_auto()
+
+# instead, I downloaded and installed the ADR-S fonts in Windows, and set the default
+# graphics rendering engine in RStudio to AGG
+# (following this instruction: https://www.cararthompson.com/posts/2024-01-12-using-fonts-in-r-for-dataviz/)
+
 ## define theme so I can modify it later
 theme_js <- 
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 12, base_family = "Lato") +
   theme(panel.grid.minor = element_blank(),
         axis.title.y = element_text(margin = margin(0, 20, 0, 0)),  # remove gap to the left of y axis title and below the x axis title
         axis.title.x = element_text(margin = margin(20, 0, 0, 0)),
@@ -71,6 +80,9 @@ theme_js <-
 ## set default theme to this
 theme_set(theme_js)
 
+## new ADR Scotland colours
+# coral, dark coral, teal, dark grey, medium coral
+order_colours_adr_s <- c("#F8667D", "#3E0D22", "#32D2A7", "#121212", "#C5406E")
 
 # Print all ---------------------------------------------------------------
 
