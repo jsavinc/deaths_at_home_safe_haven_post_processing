@@ -46,7 +46,7 @@ code_place_of_death_consistently <- function(data_tbl) {
 }
 
 # set plot font size
-theme_update(text = element_text(size = 20))
+theme_update(text = element_text(size = 18))
 ```
 
 ## Load data
@@ -163,6 +163,7 @@ I derive these from the "All" cohort year and "Both" social care recipient categ
 top_12_comorb <-
   comorbidities_by_recipient %>%
   filter(val_cohort_year=="All") %>%
+  # Note: there's no "Both" category in this table, so I just sum over recipients and non-recipients in the next step...
   count(cat_comorbidity, wt = n) %>%
   slice_max(order_by = n, n = 12) %>% pull(cat_comorbidity)
 ```
@@ -186,6 +187,59 @@ cod_by_recipient <-
 ```
 
 
+### Compute year-on-year changes in ICD-10 chapters of admissions
+
+Merge the previous years' proportion and compute the difference. Start by deriving the previous year!
+
+```{r}
+icd_chapters_by_recipient <-
+  icd_chapters_by_recipient %>%
+  mutate(prev_year = order_cohort_year[as.integer(val_cohort_year)-1L]) %>%
+  left_join(icd_chapters_by_recipient %>% select(val_cohort_year:chapter_icd10,perc_previous = perc), by = join_by(prev_year==val_cohort_year, cat_soc_care_recipient, chapter_icd10)) %>%
+  mutate(
+    perc_previous = if_else(val_cohort_year=="All", NA_real_, perc_previous),  # set to NA for the All years to avoid nonsensical results
+    perc_change = perc - perc_previous,
+    ) %>%
+  select(-c(prev_year,perc_previous))
+```
+
+
+### Shorten ICD-10 chapter names
+
+```{r}
+icd_chapters_by_recipient <-
+  icd_chapters_by_recipient %>%
+  mutate(
+    chapter_icd10 = case_when(
+      str_detect(chapter_icd10, "III ") ~ "III Blood & certain immune disorders",
+      str_detect(chapter_icd10, "XIX ") ~ "XIX Injury, poisoning, external causes",
+      str_detect(chapter_icd10, "XVIII ") ~ "XVIII Symptoms & abnormal findings",
+      str_detect(chapter_icd10, "XXI ") ~ "XXI Health & services factors",
+      TRUE ~ chapter_icd10
+    ) %>%
+      factor(., levels = unique(.))
+  )
+```
+
+
+### Top 8 most common ICD-10 chapters of admissions
+
+```{r}
+icd_chapters_by_recipient %>%
+  filter(val_cohort_year=="All") %>%
+  # Note: there's no "Both" category in this table, so I just sum over recipients and non-recipients in the next step...
+  count(chapter_icd10, wt = n) %>%
+  arrange(desc(n))
+## Note how there are 8 most common ones, and the 9th most common one is less than twice as common as the 8th!
+
+
+top_8_icd_chapters <-
+  icd_chapters_by_recipient %>%
+  filter(val_cohort_year=="All") %>%
+  # Note: there's no "Both" category in this table, so I just sum over recipients and non-recipients in the next step...
+  count(chapter_icd10, wt = n) %>%
+  slice_max(order_by = n, n = 8) %>% pull(chapter_icd10)
+```
 
 
 # Outputs
@@ -209,6 +263,14 @@ comorb_count_descriptives_by_recipient %>% knitr::kable(caption = "Descriptive s
 ```{r}
 age_descriptives_by_recipient %>% knitr::kable(caption = "Descriptive statistics of the age at death, over time, by social care (home care) recipient status.")
 ```
+
+### Marital status
+
+```{r}
+demographics_by_recipient %>%
+  filter(variable=="cat_marital_status_condensed")
+```
+
 
 
 ## Demographics over time
@@ -253,8 +315,9 @@ subplot_ggplot <- function(data, y = "prop") {
       labs(title="Percentage point change\nfrom 2019-20")
     ,
     guides = "collect"
-    )) &
+    ) &
     plot_annotation(title = "Age groups", theme = theme(plot.title = element_text(hjust=0.5)))
+)
 
 (subplot_sex <-
   wrap_plots(
@@ -268,8 +331,9 @@ subplot_ggplot <- function(data, y = "prop") {
       labs(title="Percentage point change\nfrom 2019-20")
     ,
     guides = "collect"
-    )) &
+    ) &
     plot_annotation(title = "Sex", theme = theme(plot.title = element_text(hjust=0.5)))
+)
 
 (subplot_marstat <-
   wrap_plots(
@@ -283,8 +347,9 @@ subplot_ggplot <- function(data, y = "prop") {
       labs(title="Percentage point change\nfrom 2019-20")
     ,
     guides = "collect"
-    )) &
+    ) &
     plot_annotation(title = "Marital status", theme = theme(plot.title = element_text(hjust=0.5)))
+)
 
 (subplot_simd <-
   wrap_plots(
@@ -298,8 +363,9 @@ subplot_ggplot <- function(data, y = "prop") {
       labs(title="Percentage point change\nfrom 2019-20")
     ,
     guides = "collect"
-    )) &
+    ) &
     plot_annotation(title = "Deprivation (SIMD quintile)", theme = theme(plot.title = element_text(hjust=0.5)))
+)
 
 (subplot_ur2 <-
   wrap_plots(
@@ -313,8 +379,9 @@ subplot_ggplot <- function(data, y = "prop") {
       labs(title="Percentage point change\nfrom 2019-20")
     ,
     guides = "collect"
-    )) &
+    ) &
     plot_annotation(title = "Urban-rural location", theme = theme(plot.title = element_text(hjust=0.5)))
+)
 
 (subplot_pod <-
   wrap_plots(
@@ -328,8 +395,9 @@ subplot_ggplot <- function(data, y = "prop") {
       labs(title="Percentage point change\nfrom 2019-20")
     ,
     guides = "collect"
-    )) &
+    ) &
     plot_annotation(title = "Place of death", theme = theme(plot.title = element_text(hjust=0.5)))
+)
 
 # TODO: I lose the plot_annotation title for the subplots in this step...
 wrap_plots(
@@ -415,6 +483,38 @@ comorbidities_by_recipient %>% select(-c(n, perc_change)) %>% pivot_wider(names_
 )
 ```
 
+## Count of comorbid conditions over time
+
+This will likely look more like the hospitalisation charts.
+
+```{r}
+(
+  subplot_comorb_count <-
+    comorb_count_descriptives_by_recipient %>%
+    filter(val_cohort_year != "All") %>%
+    filter(cat_soc_care_recipient != "Both") %>%
+    ggplot(
+      aes(
+        x = val_cohort_year,
+        y = val_comorb_count_m,
+        ymin = val_comorb_count_ci_lo,
+        ymax = val_comorb_count_ci_hi,
+        group = cat_soc_care_recipient,
+        shape = cat_soc_care_recipient,
+        colour = cat_soc_care_recipient
+      )
+    ) +
+    geom_point(size = rel(2)) +
+    geom_line() +
+    geom_errorbar(width = 0.2) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_colour_manual(values = order_colours_adr_s[1:2]) +
+    scale_y_continuous(n.breaks = 6) +
+    labs(x = NULL, y = NULL, title = "Mean count of\ncomorbid conditions")
+)
+```
+
+
 ## Causes of death over time
 
 ```{r}
@@ -450,36 +550,64 @@ comorbidities_by_recipient %>% select(-c(n, perc_change)) %>% pivot_wider(names_
 ### Number of hospital spells
 
 ```{r}
-(subplot_hospital_spells <-
+(
+  subplot_hospital_spells <-
     spells_by_recipient %>%
-    filter(cat_time==365) %>%
-    filter(val_cohort_year!="All") %>%
-    filter(cat_soc_care_recipient!="Both") %>%
-    ggplot(aes(x=val_cohort_year,y=amt_spells_mean,ymin=amt_spells_ci_lo, ymax=amt_spells_ci_hi, group=cat_soc_care_recipient, shape=cat_soc_care_recipient, colour=cat_soc_care_recipient)) +
-  geom_point(size=rel(2)) +
-  geom_line() +
-  geom_errorbar(width = 0.2) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  scale_colour_manual(values = order_colours_adr_s[1:2]) +
-  labs(x=NULL,y=NULL,title="Mean hospital spells")
+    filter(cat_time == 365) %>%
+    filter(val_cohort_year != "All") %>%
+    filter(cat_soc_care_recipient != "Both") %>%
+    ggplot(
+      aes(
+        x = val_cohort_year,
+        y = amt_spells_mean,
+        ymin = amt_spells_ci_lo,
+        ymax = amt_spells_ci_hi,
+        group = cat_soc_care_recipient,
+        shape = cat_soc_care_recipient,
+        colour = cat_soc_care_recipient
+      )
+    ) +
+    geom_point(size = rel(2)) +
+    geom_line() +
+    geom_errorbar(width = 0.2) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_colour_manual(values = order_colours_adr_s[1:2]) +
+    scale_y_continuous(n.breaks = 6) +
+    labs(
+      x = NULL,
+      y = NULL,
+      title = "Mean hospital admissions*",
+      caption = "*Continuous spells in hospital"
+    )
 )
 ```
 
 ### Total days in hospital
 
 ```{r}
-(subplot_hospital_stay <-
+(
+  subplot_hospital_stay <-
     los_by_recipient %>%
-    filter(cat_time==365) %>%
-    filter(val_cohort_year!="All") %>%
-    filter(cat_soc_care_recipient!="Both") %>%
-    ggplot(aes(x=val_cohort_year, y=amt_los_mean,ymin=amt_los_ci_lo, ymax=amt_los_ci_hi, group=cat_soc_care_recipient, shape=cat_soc_care_recipient, colour=cat_soc_care_recipient)) +
-  geom_point(size=rel(2)) +
-  geom_line() +
-  geom_errorbar(width = 0.2) +
-  theme(plot.title = element_text(hjust = 0.5)) +
- scale_colour_manual(values = order_colours_adr_s[1:2]) +
-  labs(x=NULL,y=NULL,title="Mean hospital spells")
+    filter(cat_time == 365) %>%
+    filter(val_cohort_year != "All") %>%
+    filter(cat_soc_care_recipient != "Both") %>%
+    ggplot(
+      aes(
+        x = val_cohort_year,
+        y = amt_los_mean,
+        ymin = amt_los_ci_lo,
+        ymax = amt_los_ci_hi,
+        group = cat_soc_care_recipient,
+        shape = cat_soc_care_recipient,
+        colour = cat_soc_care_recipient
+      )
+    ) +
+    geom_point(size = rel(2)) +
+    geom_line() +
+    geom_errorbar(width = 0.2) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_colour_manual(values = order_colours_adr_s[1:2]) +
+    labs(x = NULL, y = NULL, title = "Mean hospital days")
 )
 ```
 
@@ -497,23 +625,42 @@ comorbidities_by_recipient %>% select(-c(n, perc_change)) %>% pivot_wider(names_
   scale_y_continuous(labels = scales::label_percent(), limits = c(0, 1), n.breaks = 9) +
   theme(plot.title = element_text(hjust = 0.5)) +
    scale_fill_manual(values = order_colours_adr_s[1:2]) +
-  labs(x=NULL,y=NULL,title="% with inpatient admissions\nin final 12 months of life")
+  labs(x=NULL,y=NULL,title="% admitted in\nfinal 12 months of life")
 )
 ```
 
 ### ICD chapters
 
+Note that Covid-19 is included as code U07, in chapter `XXII Codes for special purposes` which was not included in the data extract (and the change from before the pandemic is not informative for this anyway)
+
 ```{r}
 (subplot_icd_chapters <-
-  icd_chapters_by_recipient %>%
-  filter(val_cohort_year!="All") %>%
-  filter(cat_soc_care_recipient!="Both") %>%
-  ggplot(aes(x=val_cohort_year, y=perc, group=cat_soc_care_recipient, shape=cat_soc_care_recipient, fill=cat_soc_care_recipient)) +
-  geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
-  scale_y_continuous(labels = scales::label_percent(), limits = c(0, 1), n.breaks = 9) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-   scale_fill_manual(values = order_colours_adr_s[1:2]) +
-  labs(x=NULL,y=NULL,title="% with inpatient admissions\nin final 12 months of life")
+  wrap_plots(
+    icd_chapters_by_recipient %>% 
+      filter(val_cohort_year == "2020-21") %>%
+      filter(chapter_icd10 %in% top_8_icd_chapters) %>%
+      ggplot(aes(x=chapter_icd10,y=perc,fill=cat_soc_care_recipient,group=cat_soc_care_recipient)) +
+      geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+      scale_x_discrete(labels = ~str_wrap(.x, width=30)) +
+      scale_y_continuous(labels = scales::label_percent()) +
+      theme(plot.title = element_text(hjust = 0.5)) +
+      scale_fill_manual(values = order_colours_adr_s[1:2]) +
+      labs(x=NULL,y=NULL,title="2020-21")
+    ,
+    icd_chapters_by_recipient %>% 
+      filter(val_cohort_year == "2020-21") %>%
+      filter(chapter_icd10 %in% top_8_icd_chapters) %>%
+      ggplot(aes(x=chapter_icd10,y=perc_change,fill=cat_soc_care_recipient,group=cat_soc_care_recipient)) +
+      geom_col(position = position_dodge(width = 0.9), colour = "grey10") +
+      scale_x_discrete(labels = ~str_wrap(.x, width=30)) +
+      scale_y_continuous(labels = scales::label_percent()) +
+      theme(plot.title = element_text(hjust = 0.5)) +
+      scale_fill_manual(values = order_colours_adr_s[1:2]) +
+      labs(x=NULL,y=NULL,title="Percentage point change\nfrom 2019-20")
+    ,
+    guides = "collect"
+    ) &
+    plot_annotation(title = "Diagnoses (ICD-10 chapter)", theme = theme(plot.title = element_text(hjust=0.5)))
 )
 ```
 
@@ -522,21 +669,43 @@ comorbidities_by_recipient %>% select(-c(n, perc_change)) %>% pivot_wider(names_
 # Save figures
 
 - The default width of a columnar section is 38.36cm
-- So a plot width of 18cm leaves space for a gap!
+- So a plot width of 18cm leaves space for a big gap!
 
 ```{r}
+plot_width = 19  # cm
+
 save_ggplot <- function(plot, filename, ...) {
   ggsave(filename = file.path(dir_output, filename), plot = plot, bg = "white", dpi = 600, ...)
 }
 
 tribble(
   ~plot, ~filename,
+  # demographics
   subplot_age, "fig_age.png",
   subplot_sex, "fig_sex.png",
+  subplot_marstat, "fig_marstat.png",
+  subplot_pod, "fig_pod.png",
+  subplot_simd, "fig_simd.png",
+  subplot_ur2, "fig_ur2.png",
+  # comorbidities, COD
   subplot_comorbidities, "fig_comorbidities.png",
-  subplot_hospital_admitted, "fig_comorbidities.png"
+  subplot_cod, "fig_cod.png",
+  # icd chapters
+  subplot_icd_chapters, "fig_icd_chapters.png"
 ) %>%
-  pwalk(.f = function(plot, filename) save_ggplot(plot = plot, filename = filename, units = "cm", width = 18, height = 12))
+  pwalk(.f = function(plot, filename) save_ggplot(plot = plot, filename = filename, units = "cm", width = plot_width, height = plot_width*2/3))
+
+# some plots can be narrower as they don't have two "panels"
+tribble(
+  ~plot, ~filename,
+  # hospitalisations
+  subplot_hospital_admitted, "fig_hosp_admitted.png",
+  subplot_hospital_spells, "fig_hosp_spells.png",
+  subplot_hospital_stay, "fig_hosp_los.png",
+  # comorbidity counts
+  subplot_comorb_count, "fig_comorb_count.png",
+) %>%
+  pwalk(.f = function(plot, filename) save_ggplot(plot = plot, filename = filename, units = "cm", width = plot_width/2, height = plot_width*2/3))
 
 ```
 
