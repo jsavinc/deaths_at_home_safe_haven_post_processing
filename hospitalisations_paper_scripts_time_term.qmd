@@ -1,0 +1,136 @@
+---
+title: "Hospitalisations paper scripts, using models with time term"
+author: "Jan Savinc"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+  
+
+# Overview
+
+This is a new script processing the outputs from the hospitalisations modelling analysis, based on the outputs from October 2026 - this includes models with an added time term, models with all places of death included, and an interaction term between the pandemic period and cause of death.
+
+
+
+# Preliminaries
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(broom)  # for tidy()
+library(tictoc)  # for timing
+library(janitor)  # for some nice cleaning functions
+# library(flowchart)  # for plotting a flowchart; not usable for me - it's good if you have raw data!
+library(ggflowchart)  # for plotting a flowchart
+
+source("./FUNCTIONS.R")  # load common functions
+
+dir_output <- "C:/Users/40011625/OneDrive - Edinburgh Napier University/SCADR/covid_mortality_home/dissemination/drafts//hospitalisations paper/"
+```
+
+## Functions & constants
+
+```{r}
+# specify the order of place of death
+levels_place_of_death <- c("Hospital", "Home", "Care home", "All")
+
+levels_cod_nrs <- c("Cancer", "Circulatory", "Dementia & Alzheimer's", "Respiratory", 
+"Other", "COVID-19", "All causes")
+
+code_place_of_death_consistently <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      ## shorten to "Home"
+      cat_place_of_death = if_else(cat_place_of_death == "Home & non-institution", true = "Home", false = cat_place_of_death),
+      ## Shorten to "Care home"
+      cat_place_of_death = if_else(cat_place_of_death == "Care home & other", true = "Care home", false = cat_place_of_death),
+      cat_place_of_death = factor(cat_place_of_death, levels = levels_place_of_death)
+    )
+}
+
+## helper function to merge all pre-pandemic years into one
+merge_years_n <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+        fct_relevel("2015-20")
+    ) %>%
+    group_by(val_cohort_year, .add = TRUE) %>%
+    summarise(n = sum(n), .groups = "drop")
+}
+merge_years_m_sd <- function(data_tbl) {
+  data_tbl %>%
+    mutate(
+      val_cohort_year = fct_collapse(.f = val_cohort_year, "2020-21" = c("2020-21"), other_level = "2015-20") %>%
+        fct_relevel("2015-20")
+    ) %>%
+    group_by(val_cohort_year, .add = TRUE) %>%
+    summarise(mean = weighted.mean(mean, n_deaths),
+              sd = sd_pooled(sd, n_deaths),
+              n_deaths = sum(n_deaths),  # retain the number of individuals in each merged category - for hypothesis testing later!
+              .groups = "drop")
+}
+```
+
+
+# Load data & wrangle
+
+This may be slow as I'm reading from the X:/ drive.
+
+## Regression data & AMEs
+
+```{r}
+model_coefficients_rse_univariate <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_univariate_regressions_poisson_rse.csv")
+
+model_coefficients_rse <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_models_coefficients_rse.csv")
+
+model_coefficients_rse_with_interaction <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_models_coefficients_with_cod_interaction_rse.csv")
+
+model_ames_rse <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_models_ames_rse.csv")
+
+model_ames_rse_with_interaction <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_models_ames_rse_with_cod_interaction.csv")
+
+model_collinearity <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_models_collinearity.csv")
+
+model_metrics <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_models_fit_metrics.csv")
+
+model_lrtests <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_models_rse_lrtests.csv")
+
+model_sequential_check <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/tbl_models_sequential_adjustment_rse.csv")
+```
+
+
+# Nicely formatted coefficient tables
+
+## Univariate
+
+```{r}
+
+```
+
+## Poisson + RSE
+
+```{r}
+# TODO: refresh the code below to work with the column names!
+# TODO: update naming so I get a sensible interaction name
+(tbl_model_coefficients_poisson_rse <-
+  model_coefficients_rse %>%
+  mutate(
+    variable = replace_with_long_variable_name(variable),
+    p_pretty = scales::label_pvalue()(p.value),
+    stars = gtools::stars.pval(p.value),
+    IRR = paste0(signif(IRR, 3), stars),
+    ci = format_ci(IRR_CI_low, IRR_CI_high),
+    ) %>%
+  select(c(model, variable, level, IRR, ci)) %>%
+  mutate(model = str_remove(model, "\\_poisson\\_rse")) %>%
+  pivot_wider(names_from = model, values_from = c(IRR, ci), names_vary = "slowest"))
+
+tbl_model_coefficients_poisson_rse %>%
+  mutate(variable = if_else(condition = duplicated(variable), true = " ", false = as.character(variable))) %>%
+  write_csv(., file = file.path(dir_output, "tbl_model_coefficients_poisson_rse.csv"))
+```
+
+

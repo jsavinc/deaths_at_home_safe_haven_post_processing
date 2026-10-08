@@ -84,6 +84,8 @@ I've exported the model coefficients in a piecemeal fashion, so I'll load them i
 
 The hospitalisations and LOS/days in hospital models were exported with the pandemic period as the reference period, as opposed to pre-pandemic, so I'll recalculate the intercept and pandemic coefficient for those. (the OLS models for the same were exported later, and already have the pre-pandemic as the reference level)
 
+Note: I moved some of these files on 2026-10-08, to reflect the change in modelling in the newest export - these are now in a directory named `modelling part 1 & 2 - before adding time term`
+
 ```{r}
 ## helper function to recalculate the intercept and coefficient for the pandemic
 ## period variable, in cases where the reference level was set to the pandemic
@@ -154,16 +156,16 @@ rebase_numeric_variables <- function(tbl_coef) {
 }
 
 # note, the 'other' models are just loaded but won't be used as-is - I filter them to use parts for other lists of models
-model_coefficients_other <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_other.csv")
+model_coefficients_other <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_models_coefficients_other.csv")
 
-model_coefficients_ols <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_ols.csv")
+model_coefficients_ols <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_models_coefficients_ols.csv")
 
 model_coefficients_poisson <-
   bind_rows(
-    read_csv(file = "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_poisson.csv") %>% mutate(model = "hosp_poisson") %>%
+    read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_models_hosp_poisson.csv") %>% mutate(model = "hosp_poisson") %>%
       change_reference_to_prepandemic %>%
       rebase_numeric_variables,
-    read_csv(file = "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_los_poisson.csv") %>% mutate(model = "los_poisson") %>%
+    read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_models_los_poisson.csv") %>% mutate(model = "los_poisson") %>%
       change_reference_to_prepandemic %>%
       rebase_numeric_variables,
     model_coefficients_other %>% filter(model == "discharge_poisson")
@@ -172,10 +174,10 @@ model_coefficients_poisson <-
 
 model_coefficients_negbin <-
   bind_rows(
-    read_csv(file = "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_negbin.csv") %>% mutate(model = "hosp_negbin") %>%
+    read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_models_hosp_negbin.csv") %>% mutate(model = "hosp_negbin") %>%
       change_reference_to_prepandemic %>%
       rebase_numeric_variables,
-    read_csv(file = "X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_hosp_negbin.csv") %>% mutate(model = "los_poisson") %>%
+    read_csv(file = "X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_models_hosp_negbin.csv") %>% mutate(model = "los_poisson") %>%
       change_reference_to_prepandemic %>%
       rebase_numeric_variables,
     model_coefficients_other %>% filter(model == "discharge_negbin")
@@ -184,12 +186,12 @@ model_coefficients_negbin <-
 # TODO: load the ZINB models... will need some work figuring out how to recalculate the reference level there?
 model_coefficients_zinb <- NULL
 
-model_coefficients_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_coefficients_rse.csv") %>%
+model_coefficients_rse <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_models_coefficients_rse.csv") %>%
   # rename so it's in line with the other outputs above
   rename(IRR = estimate, IRR_CI_low = conf.low, IRR_CI_high = conf.high, SE = std.error, z = statistic, p = p.value) %>%
   mutate(Coefficient = log(IRR), CI_low = log(IRR_CI_low), CI_high = log(IRR_CI_high))
 
-model_ames <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_models_ames.csv")
+model_ames <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_models_ames.csv")
 
 ## load cohort size by PoD
 cohort_by_pod <- 
@@ -200,13 +202,13 @@ cohort_by_pod <-
   # code_place_of_death_consistently
 
 ## number of data with missing entries in home deaths  
-missingness_home <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_missingness.csv")
+missingness_home <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_missingness.csv")
 
 ## number of people with/without hospitalisations - used for reporting sample size in days between discharge and death model
 # Note: I just copied this manually from the reports, part 1 & part 2, modeling hospitalisations
 
 ## univariate regression coefficients, Poisson + RSE
-univariate_regression_poisson_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_univariate_regressions_poisson_rse.csv") %>%
+univariate_regression_poisson_rse <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_univariate_regressions_poisson_rse.csv") %>%
   # some basic wrangling to get the format to be the same as other outputs
   mutate(
     variable = str_extract(term, pattern = paste0(unique(model_coefficients_rse$variable), collapse = "|")),
@@ -218,7 +220,7 @@ univariate_regression_poisson_rse <- read_csv("X:\\R2090\\2021-0312 Deaths at ho
   relocate(variable, level)
 
 ## univariate regression coefficients, negative binomial
-univariate_regression_negbin <- read_csv("X:\\R2090\\2021-0312 Deaths at home\\safe_haven_exports\\modelling_hospitalisations\\tbl_univariate_regressions_negbin.csv") %>%
+univariate_regression_negbin <- read_csv("X:/R2090/2021-0312 Deaths at home/safe_haven_exports/modelling_hospitalisations/modelling part 1 & 2 - before adding time term/tbl_univariate_regressions_negbin.csv") %>%
   # some basic wrangling to get the format to be the same as other outputs
   mutate(
     variable = str_extract(term, pattern = paste0(unique(model_coefficients_rse$variable), collapse = "|")),
